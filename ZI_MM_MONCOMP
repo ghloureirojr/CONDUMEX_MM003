@@ -1,0 +1,118 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Monitor Compras ASN'
+@Metadata.ignorePropagatedAnnotations: true
+define root view entity ZI_MM_MONCOMP
+  as select from    ZI_MM_WRAPPER_EKPO       as pos
+
+    inner join      ZI_MM_WRAPPER_EKKO       as oc        on oc.PurchaseOrder = pos.PurchaseOrder
+
+    inner join      ZI_MM_PO_DELIVERY_EXISTS as asn       on  asn.PurchaseOrder     = pos.PurchaseOrder
+                                                          and asn.PurchaseOrderItem = pos.PurchaseOrderItem
+
+    left outer join ZI_OC_HISTORY_SUM        as hist      on  hist.PurchaseOrder     = pos.PurchaseOrder
+                                                          and hist.PurchaseOrderItem = pos.PurchaseOrderItem
+
+    inner join      I_Product                as mat       on mat.Product = pos.Material
+
+    left outer join I_ProductText            as desc      on  desc.Product  = pos.Material
+                                                          and desc.Language = $session.system_language
+
+    left outer join I_Supplier               as proveedor on proveedor.Supplier = oc.Supplier
+
+    left outer join ZI_MONCOMP_LOG           as log       on  log.Oc       = pos.PurchaseOrder
+                                                          and log.Posicion = pos.PurchaseOrderItem
+
+    left outer join ZI_MM_INFOREC            as inforec   on  inforec.Material               = pos.Material
+                                                          and inforec.Supplier               = oc.Supplier
+                                                          and inforec.PurchasingOrganization = oc.PurchasingOrganization
+
+    left outer join ZI_MM_WRAPPER_LFM1       as lfm1      on  lfm1.Supplier               = oc.Supplier
+                                                          and lfm1.PurchasingOrganization = oc.PurchasingOrganization
+
+    left outer join ZI_MM_NFM_EXIST          as nfm       on  nfm.Material = pos.Material
+                                                          and nfm.Plant    = pos.Plant
+{
+  key pos.PurchaseOrder              as OC,
+  key pos.PurchaseOrderItem          as Posicion,
+      oc.PurchaseOrderDate           as FechaOC,
+      pos.StorageLocation            as StorageLoc,
+      pos.PurchaseOrderItemCategory  as ItemCateg,
+      oc.CompanyCode                 as Sociedad,
+      pos.Material                   as Material,
+      desc.ProductName               as MatDesc,
+      oc.Supplier                    as Proveedor,
+      proveedor.OrganizationBPName1  as NombreProveedor,
+      pos.Plant                      as Centro,
+      oc.PurchasingDocumentCategory  as TipoDocumento,
+      case
+        when lfm1.NfKey <> ''
+         and nfm.Material is not initial
+          then 'X'
+        else ''
+      end                            as IsNfm,
+      @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
+      pos.OrderQuantity              as CantidadPedida,
+      pos.PurchaseOrderQuantityUnit  as CantidadPedidaUnidad,
+      @Semantics.quantity.unitOfMeasure: 'CantidadRecebidaUnidad'
+      hist.Quantity                  as CantidadRecebida,
+      hist.PurchaseOrderQuantityUnit as CantidadRecebidaUnidad,
+      @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
+      cast (
+      case
+        when $projection.CantidadPedidaUnidad = $projection.CantidadRecebidaUnidad
+          then $projection.CantidadPedida - $projection.CantidadRecebida
+        else cast( 0 as bstmg )
+      end
+      as bstmg )                     as CantidadPendiente,
+      @Semantics.amount.currencyCode: 'MonedaOC'
+      pos.NetPriceAmount             as PrecioOC,
+      pos.DocumentCurrency           as MonedaOC,
+      @Semantics.amount.currencyCode: 'MonedaASN'
+      log.precio_asn                 as PrecioASN,
+      log.moneda_asn                 as MonedaASN,
+      @Semantics.amount.currencyCode: 'MonedaInforec'
+      inforec.NetPriceAmount         as PrecioInforec,
+      inforec.Currency               as MonedaInforec,
+      pos.NetPriceQuantity           as Cantidad,
+      @Semantics.amount.currencyCode: 'MonedaOC'
+      case
+        when $projection.MonedaOC = $projection.MonedaASN
+          then $projection.PrecioOC - $projection.PrecioASN
+        else cast( 0 as bprei )
+      end                            as DiferenciaOcAsn,
+      @Semantics.amount.currencyCode: 'MonedaASN'
+      case
+        when $projection.MonedaASN = $projection.MonedaInforec
+          then $projection.PrecioASN - $projection.PrecioInforec
+        else cast( 0 as bprei )
+      end                            as DiferenciaAsnInforec,
+      case
+        when log.estado = '06' //Autorizado
+          then 'Autorizado'
+        when log.estado = '05' //Actualizado automatico
+          then 'Actualizado automatico'
+        when $projection.PrecioASN is null
+          then 'Sin precio ASN'
+        when $projection.MonedaOC <> $projection.MonedaASN
+          then 'Error moneda'
+        when $projection.PrecioOC = $projection.PrecioASN
+          then 'Sin diferencia'
+        else 'Diferencia'
+      end                            as Estado,
+      log.usuario                    as UsuarioAprobador,
+      tstmpl_to_utcl( log.FechaHora,
+                     'FAIL',
+                      'INITIAL' )    as FechaAprobacion,
+      log.nota                       as Nota,
+      log.fecha_factura              as FechaFactura
+}
+where
+  (
+       oc.CompanyCode  = '1810'
+    or oc.CompanyCode  = '1820'
+  )
+  and(
+       mat.ProductType = 'NF'
+    or mat.ProductType = 'ROH'
+  )
