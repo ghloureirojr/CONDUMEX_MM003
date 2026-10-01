@@ -313,6 +313,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lv_ekorg     TYPE ekorg,
           lv_lifnr     TYPE lifnr,
           lv_matnr     TYPE matnr,
+          lv_matnr18   TYPE matnr18,
           lv_werks     TYPE werks_d,
           lv_boesl     TYPE /nfm/boesl,
           lv_nfs       TYPE /nfm/nfs,
@@ -321,11 +322,14 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lv_quotyp    TYPE oic_quotyp,
           lv_quotno    TYPE oic_quota,
           lv_quot_nes  TYPE /nfm/nes,
+          lv_nfmkey    TYPE /nfm/nes,
           lv_price     TYPE oic_price,
           lv_quotdate  TYPE oic_qtdat,
           lv_prefix    TYPE c LENGTH 2,
           lv_found_nfm TYPE abap_bool,
-          lv_msg       TYPE bapi_msg.
+          lv_msg       TYPE bapi_msg,
+          lv_len_nes   TYPE i,
+          lv_len_best  TYPE i.
 
     lv_item = |{ iv_po_item ALPHA = IN }|.
 
@@ -340,6 +344,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         AND PurchaseOrderItem = @iv_po_item
       INTO (@lv_matnr, @lv_werks).
 
+    lv_matnr18 = CONV matnr18( |{ lv_matnr ALPHA = IN WIDTH = 18 }| ).
+
     SELECT SINGLE NfKey
       FROM zi_mm_wrapper_lfm1
       WHERE Supplier               = @lv_lifnr
@@ -349,38 +355,39 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     LOOP AT ct_nfm ASSIGNING FIELD-SYMBOL(<fs_nfm>) USING KEY primary_key
          WHERE itm_number = lv_item.
       lv_found_nfm = abap_true.
-      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_quot_nes, lv_price, lv_quotdate, lv_prefix, lv_vky, lv_msg.
+      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_quot_nes, lv_price, lv_quotdate, lv_prefix, lv_vky, lv_msg, lv_len_best.
+
+      lv_nfmkey = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
 
       IF <fs_nfm>-exchangekey IS NOT INITIAL.
         lv_boesl = <fs_nfm>-exchangekey.
       ENDIF.
 
-      "NFS y BCU salen de TDEFAULT, no de RATEDETKEY
       lv_vky = CONV /nfm/vky( iv_purchaseorder ).
       SELECT SINGLE nfs, bcu
         FROM /nfm/tdefault
         WHERE vtp = 'E'
           AND vky = @lv_vky
-          AND nes = @<fs_nfm>-nfmkey
+          AND nes = @lv_nfmkey
         INTO (@lv_nfs, @lv_bcu).
 
       IF lv_nfs IS INITIAL OR lv_bcu IS INITIAL.
-        lv_vky = |{ lv_ekorg }{ CONV lifnr( |{ lv_lifnr ALPHA = IN WIDTH = 10 }| ) }{ CONV matnr18( |{ lv_matnr ALPHA = IN WIDTH = 18 }| ) }|.
+        lv_vky = |{ lv_ekorg }{ CONV lifnr( |{ lv_lifnr ALPHA = IN WIDTH = 10 }| ) }{ lv_matnr18 }|.
         SELECT SINGLE nfs, bcu
           FROM /nfm/tdefault
           WHERE vtp = 'EA'
             AND vky = @lv_vky
-            AND nes = @<fs_nfm>-nfmkey
+            AND nes = @lv_nfmkey
           INTO (@lv_nfs, @lv_bcu).
       ENDIF.
 
       IF lv_nfs IS INITIAL OR lv_bcu IS INITIAL.
-        lv_vky = |{ lv_ekorg }{ CONV matnr18( |{ lv_matnr ALPHA = IN WIDTH = 18 }| ) }|.
+        lv_vky = |{ lv_ekorg }{ lv_matnr18 }|.
         SELECT SINGLE nfs, bcu
           FROM /nfm/tdefault
           WHERE vtp = 'EC'
             AND vky = @lv_vky
-            AND nes = @<fs_nfm>-nfmkey
+            AND nes = @lv_nfmkey
           INTO (@lv_nfs, @lv_bcu).
       ENDIF.
 
@@ -400,42 +407,76 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
       SELECT nes
         FROM /nfm/tvgw
-        WHERE matnr = @lv_matnr
+        WHERE matnr = @lv_matnr18
           AND werks = @lv_werks
         INTO TABLE @DATA(lt_tvgw_nes).
 
+      IF lt_tvgw_nes IS INITIAL.
+        SELECT nes
+          FROM /nfm/tvgw
+          WHERE matnr = @lv_matnr
+            AND werks = @lv_werks
+          INTO TABLE @lt_tvgw_nes.
+      ENDIF.
+
+      "Preferir el NES mas largo (CULM antes que CUL)
       LOOP AT lt_tvgw_nes ASSIGNING FIELD-SYMBOL(<fs_tvgw>).
-        IF <fs_tvgw>-nes(3) = <fs_nfm>-nfmkey OR <fs_tvgw>-nes = <fs_nfm>-nfmkey.
+        IF strlen( <fs_tvgw>-nes ) < 3.
+          CONTINUE.
+        ENDIF.
+        IF <fs_tvgw>-nes(3) <> lv_nfmkey AND <fs_tvgw>-nes <> lv_nfmkey.
+          CONTINUE.
+        ENDIF.
+        lv_len_nes = strlen( condense( val = CONV string( <fs_tvgw>-nes ) ) ).
+        IF lv_len_nes > lv_len_best.
+          lv_len_best = lv_len_nes.
           lv_quot_nes = <fs_tvgw>-nes.
-          EXIT.
         ENDIF.
       ENDLOOP.
 
       IF lv_quot_nes IS INITIAL.
-        lv_quot_nes = <fs_nfm>-nfmkey.
+        lv_quot_nes = lv_nfmkey.
       ENDIF.
 
-      lv_quotno = |{ lv_quot_nes }{ lv_ekorg }{ lv_bcu }|.
+      APPEND VALUE #( nes = lv_quot_nes ) TO lt_tvgw_nes.
+      APPEND VALUE #( nes = lv_nfmkey ) TO lt_tvgw_nes.
 
-      SELECT price, quotdate
-        FROM oicqp
-        WHERE quosrc    = 'NF'
-          AND quotyp    = @lv_quotyp
-          AND quotno    = @lv_quotno
-          AND quotdate <= @iv_invoice_date
-        INTO TABLE @DATA(lt_oicqp).
+      LOOP AT lt_tvgw_nes ASSIGNING <fs_tvgw>.
+        IF <fs_tvgw>-nes IS INITIAL.
+          CONTINUE.
+        ENDIF.
+        IF strlen( <fs_tvgw>-nes ) >= 3 AND <fs_tvgw>-nes(3) <> lv_nfmkey AND <fs_tvgw>-nes <> lv_nfmkey.
+          CONTINUE.
+        ENDIF.
 
-      LOOP AT lt_oicqp ASSIGNING FIELD-SYMBOL(<fs_oicqp>).
-        IF lv_nfs = '03' OR lv_nfs = '08'.
-          IF <fs_oicqp>-quotdate < iv_invoice_date AND <fs_oicqp>-quotdate >= lv_quotdate.
-            lv_quotdate = <fs_oicqp>-quotdate.
-            lv_price    = <fs_oicqp>-price.
+        lv_quotno = |{ condense( val = CONV string( <fs_tvgw>-nes ) ) }{ lv_ekorg }{ lv_bcu }|.
+        CLEAR: lv_price, lv_quotdate.
+
+        SELECT price, quotdate
+          FROM oicqp
+          WHERE quosrc    = 'NF'
+            AND quotyp    = @lv_quotyp
+            AND quotno    = @lv_quotno
+            AND quotdate <= @iv_invoice_date
+          INTO TABLE @DATA(lt_oicqp).
+
+        LOOP AT lt_oicqp ASSIGNING FIELD-SYMBOL(<fs_oicqp>).
+          IF lv_nfs = '03' OR lv_nfs = '08'.
+            IF <fs_oicqp>-quotdate < iv_invoice_date AND <fs_oicqp>-quotdate >= lv_quotdate.
+              lv_quotdate = <fs_oicqp>-quotdate.
+              lv_price    = <fs_oicqp>-price.
+            ENDIF.
+          ELSE.
+            IF <fs_oicqp>-quotdate >= lv_quotdate.
+              lv_quotdate = <fs_oicqp>-quotdate.
+              lv_price    = <fs_oicqp>-price.
+            ENDIF.
           ENDIF.
-        ELSE.
-          IF <fs_oicqp>-quotdate >= lv_quotdate.
-            lv_quotdate = <fs_oicqp>-quotdate.
-            lv_price    = <fs_oicqp>-price.
-          ENDIF.
+        ENDLOOP.
+
+        IF lv_price IS NOT INITIAL.
+          lv_quot_nes = <fs_tvgw>-nes.
+          EXIT.
         ENDIF.
       ENDLOOP.
 
