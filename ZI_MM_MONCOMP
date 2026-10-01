@@ -58,15 +58,7 @@ define root view entity ZI_MM_MONCOMP
       coalesce( hist.Quantity, cast( 0 as bstmg ) ) as CantidadRecebida,
       pos.PurchaseOrderQuantityUnit  as CantidadRecebidaUnidad,
       @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
-      cast(
-        case
-          when hist.PurchaseOrderQuantityUnit is initial
-            then pos.OrderQuantity
-          when pos.PurchaseOrderQuantityUnit = hist.PurchaseOrderQuantityUnit
-            then pos.OrderQuantity - coalesce( hist.Quantity, cast( 0 as bstmg ) )
-          else cast( 0 as bstmg )
-        end
-        as bstmg )                   as CantidadPendiente,
+      pos.OrderQuantity - coalesce( hist.Quantity, cast( 0 as bstmg ) ) as CantidadPendiente,
       @Semantics.amount.currencyCode: 'MonedaOC'
       pos.NetPriceAmount             as PrecioOC,
       pos.DocumentCurrency           as MonedaOC,
