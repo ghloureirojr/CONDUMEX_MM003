@@ -95,8 +95,11 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
   METHOD lock.
   ENDMETHOD.
 
-  METHOD get_instance_features.
-  ENDMETHOD.
+METHOD get_instance_features.
+  result = VALUE #( FOR ls_key IN keys (
+                      %tky                  = ls_key-%tky
+                      %action-authPrecioASN = if_abap_behv=>fc-o-enabled ) ).
+ENDMETHOD.
 
   METHOD downloadTemplate.
     "La lógica está en el frontend!!!!
