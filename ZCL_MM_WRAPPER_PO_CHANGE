@@ -112,13 +112,20 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lt_sched_ch  TYPE STANDARD TABLE OF bapimeposchedule,
           lt_schedx    TYPE STANDARD TABLE OF bapimeposchedulx,
           lv_po_item   TYPE bapimeposchedule-po_item,
+          lv_item_bapi TYPE bapimepoitem-po_item,
           lv_found     TYPE abap_bool,
           lt_nfm       TYPE tt_nfm_std,
           lt_nfm_k     TYPE tt_nfm,
           lt_nfm_ch    TYPE tt_nfm_std,
-          lt_nfm_ret   TYPE tt_return.
+          lt_nfm_ret   TYPE tt_return,
+          ls_header    TYPE bapimepoheader,
+          ls_headerx   TYPE bapimepoheaderx.
 
-    lt_itemx = is_param-t_poitemx.
+    lt_itemx   = is_param-t_poitemx.
+    ls_header  = is_param-is_poheader.
+    ls_headerx = is_param-is_poheaderx.
+    "PO_NUMBER en POHEADERX no cambia nada y genera 06/023 falso
+    CLEAR ls_headerx-po_number.
 
     LOOP AT is_param-t_poitem ASSIGNING FIELD-SYMBOL(<fs_item>).
       READ TABLE lt_itemx ASSIGNING FIELD-SYMBOL(<fs_itemx>)
@@ -128,9 +135,16 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
+      lv_item_bapi = |{ <fs_item>-po_item ALPHA = IN }|.
+
+      "NFM y POSCHEDULE requieren POITEM; ELIKZ lleva el item completo
       IF <fs_itemx>-no_more_gr = abap_true.
         APPEND CORRESPONDING #( <fs_item> ) TO lt_poitem.
         APPEND CORRESPONDING #( <fs_itemx> ) TO lt_poitemx.
+      ELSE.
+        APPEND VALUE #( po_item = lv_item_bapi ) TO lt_poitem.
+        APPEND VALUE #( po_item  = lv_item_bapi
+                        po_itemx = abap_true ) TO lt_poitemx.
       ENDIF.
 
       IF <fs_itemx>-net_price = abap_true.
@@ -241,6 +255,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           APPEND VALUE #( po_item       = <fs_sched>-po_item
                           sched_line    = <fs_sched>-sched_line
                           po_itemx      = abap_true
+                          sched_linex   = abap_true
                           delivery_date = abap_true ) TO lt_schedx.
           lv_found = abap_true.
         ENDLOOP.
@@ -281,8 +296,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         CALL FUNCTION 'BAPI_PO_CHANGE'
           EXPORTING
             purchaseorder = is_param-iv_purchaseorder
-            poheader      = is_param-is_poheader
-            poheaderx     = is_param-is_poheaderx
+            poheader      = ls_header
+            poheaderx     = ls_headerx
           TABLES
             return        = rt_return
             poitem        = lt_poitem
@@ -297,9 +312,14 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         RETURN.
     ENDTRY.
 
-    READ TABLE rt_return TRANSPORTING NO FIELDS
-        WITH KEY type = 'S'.
-    IF sy-subrc IS NOT INITIAL.
+    LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
+      RETURN.
+    ENDLOOP.
+
+    IF lt_nfm_ch IS INITIAL
+        AND lt_sched_ch IS INITIAL
+        AND lt_poitem IS INITIAL
+        AND lt_pocond IS INITIAL.
       RETURN.
     ENDIF.
 
