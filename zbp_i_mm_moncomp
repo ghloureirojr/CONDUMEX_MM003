@@ -801,12 +801,14 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                             IMPORTING p_out_tab = DATA(lt_out) ).
         CATCH cx_root INTO DATA(lx_par).
           LOOP AT keys ASSIGNING FIELD-SYMBOL(<fs_key_ex>).
-            APPEND VALUE #( %tky        = <fs_key_ex>-%tky
-                            %fail-cause = if_abap_behv=>cause-unspecific
-                            %msg        = new_message_with_text(
-                                            severity = if_abap_behv_message=>severity-error
-                                            text     = lx_par->get_text( ) ) ) TO reported-zi_mm_moncomp.
-            APPEND VALUE #( %tky = <fs_key_ex>-%tky ) TO failed-zi_mm_moncomp.
+            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                     %tky = <fs_key_ex>-%tky
+                                                     %msg = new_message_with_text(
+                                                              severity = if_abap_behv_message=>severity-error
+                                                              text     = lx_par->get_text( ) ) ) ).
+            failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                   %tky        = <fs_key_ex>-%tky
+                                                   %fail-cause = if_abap_behv=>cause-unspecific ) ).
             lv_bapi_msg = abap_true.
           ENDLOOP.
       ENDTRY.
@@ -847,7 +849,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                     reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                              %tky = keys[ KEY id %key-oc       = <fs_result>-oc
                                                                                  %key-Posicion = <fs_new_pos_result>-posicion ]-%tky
-                                                             %fail-cause = if_abap_behv=>cause-unspecific
                                                              %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                                  number   = 018
                                                                                  v1       = <fs_result>-oc
@@ -857,14 +858,15 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                     reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                              %tky = keys[ KEY id %key-oc       = <fs_result>-oc
                                                                                  %key-Posicion = <fs_new_pos_result>-posicion ]-%tky
-                                                             %fail-cause = if_abap_behv=>cause-unspecific
                                                              %msg = new_message_with_text(
                                                                       severity = if_abap_behv_message=>severity-error
                                                                       text     = lv_err_txt ) ) ).
                   ENDIF.
 
-                  APPEND VALUE #( %tky = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                      %key-Posicion = <fs_new_pos_result>-posicion ]-%tky ) TO failed-zi_mm_moncomp.
+                  failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                         %tky        = keys[ KEY id %key-oc       = <fs_result>-oc
+                                                                                    %key-Posicion = <fs_new_pos_result>-posicion ]-%tky
+                                                         %fail-cause = if_abap_behv=>cause-unspecific ) ).
                   lv_bapi_msg = abap_true.
                   CLEAR lv_timestamp.
                 ENDLOOP.
@@ -882,7 +884,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                     reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                              %tky = keys[ KEY id %key-oc       = <fs_result>-oc
                                                                                  %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                             %fail-cause = if_abap_behv=>cause-unspecific
                                                              %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                                  number   = 016
                                                                                  v1       = <fs_result>-oc
@@ -892,14 +893,15 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                     reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                              %tky = keys[ KEY id %key-oc       = <fs_result>-oc
                                                                                  %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                             %fail-cause = if_abap_behv=>cause-unspecific
                                                              %msg = new_message_with_text(
                                                                       severity = if_abap_behv_message=>severity-error
                                                                       text     = lv_err_txt ) ) ).
                   ENDIF.
 
-                  APPEND VALUE #( %tky = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                      %key-Posicion = <fs_pos>-posicion ]-%tky ) TO failed-zi_mm_moncomp.
+                  failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                         %tky        = keys[ KEY id %key-oc       = <fs_result>-oc
+                                                                                    %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                         %fail-cause = if_abap_behv=>cause-unspecific ) ).
                   lv_bapi_msg = abap_true.
                   CLEAR lv_timestamp.
                 ENDLOOP.
@@ -966,12 +968,14 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
       IF lv_bapi_msg = abap_false.
         LOOP AT keys ASSIGNING FIELD-SYMBOL(<fs_key_sil>).
-          APPEND VALUE #( %tky        = <fs_key_sil>-%tky
-                          %fail-cause = if_abap_behv=>cause-unspecific
-                          %msg        = new_message_with_text(
-                                          severity = if_abap_behv_message=>severity-error
-                                          text     = |Sin respuesta BAPI_PO_CHANGE OC { <fs_key_sil>-Oc } pos { <fs_key_sil>-Posicion }| ) ) TO reported-zi_mm_moncomp.
-          APPEND VALUE #( %tky = <fs_key_sil>-%tky ) TO failed-zi_mm_moncomp.
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   %tky = <fs_key_sil>-%tky
+                                                   %msg = new_message_with_text(
+                                                            severity = if_abap_behv_message=>severity-error
+                                                            text     = |Sin respuesta BAPI_PO_CHANGE OC { <fs_key_sil>-Oc } pos { <fs_key_sil>-Posicion }| ) ) ).
+          failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                 %tky        = <fs_key_sil>-%tky
+                                                 %fail-cause = if_abap_behv=>cause-unspecific ) ).
         ENDLOOP.
       ENDIF.
     ENDIF.
@@ -992,12 +996,14 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                 IMPORTING p_out_tab = DATA(lt_sag_out) ).
         CATCH cx_root INTO DATA(lx_sag).
           LOOP AT keys ASSIGNING FIELD-SYMBOL(<fs_key_sag>).
-            APPEND VALUE #( %tky        = <fs_key_sag>-%tky
-                            %fail-cause = if_abap_behv=>cause-unspecific
-                            %msg        = new_message_with_text(
-                                            severity = if_abap_behv_message=>severity-error
-                                            text     = lx_sag->get_text( ) ) ) TO reported-zi_mm_moncomp.
-            APPEND VALUE #( %tky = <fs_key_sag>-%tky ) TO failed-zi_mm_moncomp.
+            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                     %tky = <fs_key_sag>-%tky
+                                                     %msg = new_message_with_text(
+                                                              severity = if_abap_behv_message=>severity-error
+                                                              text     = lx_sag->get_text( ) ) ) ).
+            failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                   %tky        = <fs_key_sag>-%tky
+                                                   %fail-cause = if_abap_behv=>cause-unspecific ) ).
             lv_sag_msg = abap_true.
           ENDLOOP.
       ENDTRY.
@@ -1065,7 +1071,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
                                                                              %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                         %fail-cause = if_abap_behv=>cause-unspecific
                                                          %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                              number   = 016
                                                                              v1       = <fs_sag_res>-oc
@@ -1075,14 +1080,15 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
                                                                              %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                         %fail-cause = if_abap_behv=>cause-unspecific
                                                          %msg = new_message_with_text(
                                                                   severity = if_abap_behv_message=>severity-error
                                                                   text     = lv_err_txt ) ) ).
               ENDIF.
 
-              APPEND VALUE #( %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
-                                                  %key-Posicion = <fs_pos>-posicion ]-%tky ) TO failed-zi_mm_moncomp.
+              failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                     %tky        = keys[ KEY id %key-oc       = <fs_sag_res>-oc
+                                                                                %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                     %fail-cause = if_abap_behv=>cause-unspecific ) ).
             ENDIF.
 
             lv_sag_msg = abap_true.
@@ -1093,12 +1099,14 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
       IF lv_sag_msg = abap_false.
         LOOP AT keys ASSIGNING FIELD-SYMBOL(<fs_key_ss>).
-          APPEND VALUE #( %tky        = <fs_key_ss>-%tky
-                          %fail-cause = if_abap_behv=>cause-unspecific
-                          %msg        = new_message_with_text(
-                                          severity = if_abap_behv_message=>severity-error
-                                          text     = |Sin respuesta BAPI_SAG_CHANGE OC { <fs_key_ss>-Oc } pos { <fs_key_ss>-Posicion }| ) ) TO reported-zi_mm_moncomp.
-          APPEND VALUE #( %tky = <fs_key_ss>-%tky ) TO failed-zi_mm_moncomp.
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   %tky = <fs_key_ss>-%tky
+                                                   %msg = new_message_with_text(
+                                                            severity = if_abap_behv_message=>severity-error
+                                                            text     = |Sin respuesta BAPI_SAG_CHANGE OC { <fs_key_ss>-Oc } pos { <fs_key_ss>-Posicion }| ) ) ).
+          failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                 %tky        = <fs_key_ss>-%tky
+                                                 %fail-cause = if_abap_behv=>cause-unspecific ) ).
         ENDLOOP.
       ENDIF.
     ENDIF.
@@ -1119,12 +1127,14 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                 IMPORTING p_out_tab = DATA(lt_nfm_out) ).
         CATCH cx_root INTO DATA(lx_nfm).
           LOOP AT keys ASSIGNING FIELD-SYMBOL(<fs_key_nfm>).
-            APPEND VALUE #( %tky        = <fs_key_nfm>-%tky
-                            %fail-cause = if_abap_behv=>cause-unspecific
-                            %msg        = new_message_with_text(
-                                            severity = if_abap_behv_message=>severity-error
-                                            text     = lx_nfm->get_text( ) ) ) TO reported-zi_mm_moncomp.
-            APPEND VALUE #( %tky = <fs_key_nfm>-%tky ) TO failed-zi_mm_moncomp.
+            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                     %tky = <fs_key_nfm>-%tky
+                                                     %msg = new_message_with_text(
+                                                              severity = if_abap_behv_message=>severity-error
+                                                              text     = lx_nfm->get_text( ) ) ) ).
+            failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                   %tky        = <fs_key_nfm>-%tky
+                                                   %fail-cause = if_abap_behv=>cause-unspecific ) ).
             lv_nfm_msg = abap_true.
           ENDLOOP.
       ENDTRY.
@@ -1192,7 +1202,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc       = <fs_nfm_res>-oc
                                                                              %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                         %fail-cause = if_abap_behv=>cause-unspecific
                                                          %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                              number   = 016
                                                                              v1       = <fs_nfm_res>-oc
@@ -1202,14 +1211,15 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc       = <fs_nfm_res>-oc
                                                                              %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                         %fail-cause = if_abap_behv=>cause-unspecific
                                                          %msg = new_message_with_text(
                                                                   severity = if_abap_behv_message=>severity-error
                                                                   text     = lv_err_txt ) ) ).
               ENDIF.
 
-              APPEND VALUE #( %tky = keys[ KEY id %key-oc       = <fs_nfm_res>-oc
-                                                  %key-Posicion = <fs_pos>-posicion ]-%tky ) TO failed-zi_mm_moncomp.
+              failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                     %tky        = keys[ KEY id %key-oc       = <fs_nfm_res>-oc
+                                                                                %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                     %fail-cause = if_abap_behv=>cause-unspecific ) ).
             ENDIF.
 
             lv_nfm_msg = abap_true.
@@ -1220,12 +1230,14 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
       IF lv_nfm_msg = abap_false.
         LOOP AT keys ASSIGNING FIELD-SYMBOL(<fs_key_ns>).
-          APPEND VALUE #( %tky        = <fs_key_ns>-%tky
-                          %fail-cause = if_abap_behv=>cause-unspecific
-                          %msg        = new_message_with_text(
-                                          severity = if_abap_behv_message=>severity-error
-                                          text     = |Sin respuesta NFM OC { <fs_key_ns>-Oc } pos { <fs_key_ns>-Posicion }| ) ) TO reported-zi_mm_moncomp.
-          APPEND VALUE #( %tky = <fs_key_ns>-%tky ) TO failed-zi_mm_moncomp.
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   %tky = <fs_key_ns>-%tky
+                                                   %msg = new_message_with_text(
+                                                            severity = if_abap_behv_message=>severity-error
+                                                            text     = |Sin respuesta NFM OC { <fs_key_ns>-Oc } pos { <fs_key_ns>-Posicion }| ) ) ).
+          failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                 %tky        = <fs_key_ns>-%tky
+                                                 %fail-cause = if_abap_behv=>cause-unspecific ) ).
         ENDLOOP.
       ENDIF.
     ENDIF.
