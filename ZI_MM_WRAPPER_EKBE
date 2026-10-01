@@ -1,0 +1,23 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Wrapper EKBE'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_WRAPPER_EKBE
+  as select from ekbe as hist
+    inner join   ekpo as item on  item.ebeln = hist.ebeln
+                              and item.ebelp = hist.ebelp
+{
+  key hist.ebeln as PurchaseOrder,
+  key hist.ebelp as PurchaseOrderItem,
+  key hist.zekkn as SequentialNmbrOfAccountAssgmt,
+  key hist.vgabe as PurchasingHistoryType,
+  key hist.gjahr as FiscalYear,
+  key hist.belnr as MaterialDocument,
+  key hist.buzei as MaterialDocumentItem,
+      hist.bewtp as PurchasingHistoryCategory,
+      hist.bwart as GoodsMovementType,
+      hist.shkzg as DebitCreditCode,
+      @Semantics.quantity.unitOfMeasure: 'PurchaseOrderQuantityUnit'
+      hist.menge as Quantity,
+      item.meins as PurchaseOrderQuantityUnit
+}
