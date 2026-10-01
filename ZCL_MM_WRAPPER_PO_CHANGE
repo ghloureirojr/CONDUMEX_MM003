@@ -320,7 +320,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lv_price     TYPE oic_price,
           lv_quotdate  TYPE oic_qtdat,
           lv_prefix    TYPE c LENGTH 2,
-          lv_found_nfm TYPE abap_bool.
+          lv_found_nfm TYPE abap_bool,
+          lv_msg       TYPE bapi_msg.
 
     lv_item = |{ iv_po_item ALPHA = IN }|.
 
@@ -344,28 +345,23 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     LOOP AT ct_nfm ASSIGNING FIELD-SYMBOL(<fs_nfm>) USING KEY primary_key
          WHERE itm_number = lv_item.
       lv_found_nfm = abap_true.
-      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_quot_nes, lv_price, lv_quotdate, lv_prefix, lv_vky.
+      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_quot_nes, lv_price, lv_quotdate, lv_prefix, lv_vky, lv_msg.
 
-      lv_nfs = <fs_nfm>-ratedetkey.
-      lv_bcu = <fs_nfm>-bvalcurkyd.
-      lv_boesl = COND #( WHEN <fs_nfm>-exchangekey IS NOT INITIAL
-                         THEN <fs_nfm>-exchangekey
-                         ELSE lv_boesl ).
-
-      IF lv_nfs IS INITIAL OR lv_bcu IS INITIAL.
-        lv_vky = CONV /nfm/vky( iv_purchaseorder ).
-
-        SELECT SINGLE nfs, bcu
-          FROM /nfm/tdefault
-          WHERE vtp = 'E'
-            AND vky = @lv_vky
-            AND nes = @<fs_nfm>-nfmkey
-          INTO (@lv_nfs, @lv_bcu).
+      IF <fs_nfm>-exchangekey IS NOT INITIAL.
+        lv_boesl = <fs_nfm>-exchangekey.
       ENDIF.
+
+      "NFS y BCU salen de TDEFAULT, no de RATEDETKEY
+      lv_vky = CONV /nfm/vky( iv_purchaseorder ).
+      SELECT SINGLE nfs, bcu
+        FROM /nfm/tdefault
+        WHERE vtp = 'E'
+          AND vky = @lv_vky
+          AND nes = @<fs_nfm>-nfmkey
+        INTO (@lv_nfs, @lv_bcu).
 
       IF lv_nfs IS INITIAL OR lv_bcu IS INITIAL.
         lv_vky = |{ lv_ekorg }{ CONV lifnr( |{ lv_lifnr ALPHA = IN WIDTH = 10 }| ) }{ CONV matnr18( |{ lv_matnr ALPHA = IN WIDTH = 18 }| ) }|.
-
         SELECT SINGLE nfs, bcu
           FROM /nfm/tdefault
           WHERE vtp = 'EA'
@@ -376,13 +372,16 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
       IF lv_nfs IS INITIAL OR lv_bcu IS INITIAL.
         lv_vky = |{ lv_ekorg }{ CONV matnr18( |{ lv_matnr ALPHA = IN WIDTH = 18 }| ) }|.
-
         SELECT SINGLE nfs, bcu
           FROM /nfm/tdefault
           WHERE vtp = 'EC'
             AND vky = @lv_vky
             AND nes = @<fs_nfm>-nfmkey
           INTO (@lv_nfs, @lv_bcu).
+      ENDIF.
+
+      IF lv_bcu IS INITIAL AND <fs_nfm>-bvalcurkyd IS NOT INITIAL.
+        lv_bcu = <fs_nfm>-bvalcurkyd.
       ENDIF.
 
       IF lv_nfs = '02'.
@@ -437,9 +436,11 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDLOOP.
 
       IF lv_price IS INITIAL.
+        lv_msg = |OICQP no encontrado NF/{ lv_quotyp }/{ lv_quotno } fecha { iv_invoice_date } NFS { lv_nfs }|.
         APPEND VALUE #( type       = 'E'
                         id         = 'ZCL_MSG_MM_003'
                         number     = '033'
+                        message    = lv_msg
                         message_v1 = iv_purchaseorder
                         message_v2 = iv_po_item ) TO ct_return.
         RETURN.
