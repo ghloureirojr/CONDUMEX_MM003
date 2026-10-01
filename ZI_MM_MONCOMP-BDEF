@@ -1,0 +1,20 @@
+unmanaged implementation in class zbp_i_mm_moncomp unique;
+strict ( 2 );
+
+define behavior for ZI_MM_MONCOMP //alias <alias_name>
+//late numbering
+lock master
+authorization master ( instance )
+//etag master <field_name>
+{
+  create ( authorization : global );
+  update;
+  delete;
+
+  static action ( authorization : global ) downloadTemplate;
+  static action ( authorization : global ) uploadExcel parameter ZAE_MM_EXCEL_MONCOMP;
+  action ( features : instance ) authPrecioASN;
+  action authDiscre parameter ZAE_MM_AUTH_DISCREPANCIA;
+
+  field ( readonly ) OC, Posicion;
+}
