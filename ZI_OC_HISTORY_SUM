@@ -1,0 +1,20 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Suma de datos de EKBE'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_OC_HISTORY_SUM
+  as select from ZI_MM_WRAPPER_EKBE
+{
+  key PurchaseOrder,
+  key PurchaseOrderItem,
+      @Semantics.quantity.unitOfMeasure: 'PurchaseOrderQuantityUnit'
+      sum( Quantity ) as Quantity,
+      PurchaseOrderQuantityUnit
+}
+where
+      PurchasingHistoryCategory = 'E'
+  and GoodsMovementType         = '101'
+group by
+  PurchaseOrder,
+  PurchaseOrderItem,
+  PurchaseOrderQuantityUnit
