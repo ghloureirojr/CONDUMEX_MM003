@@ -462,6 +462,29 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD apply_nfm_rates.
+    TYPES: BEGIN OF ty_tvgw,
+             nes   TYPE /nfm/nes,
+             kappl TYPE kappl,
+           END OF ty_tvgw,
+           BEGIN OF ty_nes,
+             nes TYPE /nfm/nes,
+           END OF ty_nes,
+           BEGIN OF ty_tdef,
+             nes TYPE /nfm/nes,
+             nfs TYPE /nfm/nfs,
+             bcu TYPE /nfm/bcu,
+           END OF ty_tdef,
+           BEGIN OF ty_quot,
+             quotyp TYPE oic_quotyp,
+             quotno TYPE oic_quota,
+           END OF ty_quot,
+           BEGIN OF ty_oicqp,
+             quotyp   TYPE oic_quotyp,
+             quotno   TYPE oic_quota,
+             quotdate TYPE oic_qtdat,
+             price    TYPE oic_price,
+           END OF ty_oicqp.
+
     DATA: lv_item      TYPE /nfm/bapidocitm-itm_number,
           lv_ekorg     TYPE ekorg,
           lv_lifnr     TYPE lifnr,
@@ -469,6 +492,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lv_matnr18   TYPE matnr18,
           lv_werks     TYPE werks_d,
           lv_boesl     TYPE /nfm/boesl,
+          lv_boesl_ln  TYPE /nfm/boesl,
           lv_nfs       TYPE /nfm/nfs,
           lv_bcu       TYPE /nfm/bcu,
           lv_vky       TYPE /nfm/vky,
@@ -480,16 +504,19 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lv_price     TYPE oic_price,
           lv_quotdate  TYPE oic_qtdat,
           lv_prefix    TYPE c LENGTH 2,
-          lv_msg       TYPE bapi_msg.
-
-    TYPES: BEGIN OF ty_tvgw,
-             nes   TYPE /nfm/nes,
-             kappl TYPE kappl,
-           END OF ty_tvgw.
-
-    DATA lt_tvgw TYPE STANDARD TABLE OF ty_tvgw.
+          lv_msg       TYPE bapi_msg,
+          lt_tvgw      TYPE STANDARD TABLE OF ty_tvgw,
+          lt_nes       TYPE SORTED TABLE OF ty_nes WITH UNIQUE KEY nes,
+          ls_nes       TYPE ty_nes,
+          lt_tdef      TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
+          ls_tdef      TYPE ty_tdef,
+          lt_quot      TYPE SORTED TABLE OF ty_quot WITH UNIQUE KEY quotyp quotno,
+          ls_quot      TYPE ty_quot,
+          lt_oicqp     TYPE SORTED TABLE OF ty_oicqp WITH NON-UNIQUE KEY quotyp quotno,
+          lt_oicqp_db  TYPE STANDARD TABLE OF ty_oicqp.
 
     lv_item = |{ iv_po_item ALPHA = IN }|.
+    lv_vky  = CONV /nfm/vky( iv_purchaseorder ).
 
     SELECT SINGLE Supplier, PurchasingOrganization
       FROM zi_mm_wrapper_ekko
@@ -526,43 +553,46 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
     LOOP AT ct_nfm ASSIGNING FIELD-SYMBOL(<fs_nfm>) USING KEY primary_key
          WHERE itm_number = lv_item.
-      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_price, lv_quotdate, lv_prefix, lv_vky, lv_msg, lv_nes, lv_kappl.
-
-      lv_nfmkey = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
-
-      IF <fs_nfm>-exchangekey IS NOT INITIAL.
-        lv_boesl = <fs_nfm>-exchangekey.
+      ls_nes-nes = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
+      IF ls_nes-nes IS NOT INITIAL.
+        INSERT ls_nes INTO TABLE lt_nes.
       ENDIF.
+    ENDLOOP.
 
-      lv_vky = CONV /nfm/vky( iv_purchaseorder ).
-      SELECT SINGLE nfs, bcu
+    IF lt_nes IS NOT INITIAL.
+      SELECT nes, nfs, bcu
         FROM /nfm/tdefault
+        FOR ALL ENTRIES IN @lt_nes
         WHERE vtp = 'E'
           AND vky = @lv_vky
-          AND nes = @lv_nfmkey
-        INTO (@lv_nfs, @lv_bcu).
+          AND nes = @lt_nes-nes
+        INTO TABLE @lt_tdef.
+    ENDIF.
 
+    LOOP AT ct_nfm ASSIGNING <fs_nfm> USING KEY primary_key
+         WHERE itm_number = lv_item.
+      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_nes, lv_kappl, lv_boesl_ln, lv_nfmkey, lv_prefix.
+
+      lv_nfmkey   = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
+      lv_boesl_ln = lv_boesl.
+      IF <fs_nfm>-exchangekey IS NOT INITIAL.
+        lv_boesl_ln = <fs_nfm>-exchangekey.
+      ENDIF.
+
+      READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = lv_nfmkey.
+      IF sy-subrc IS INITIAL.
+        lv_nfs = ls_tdef-nfs.
+        lv_bcu = ls_tdef-bcu.
+      ENDIF.
       IF lv_bcu IS INITIAL AND <fs_nfm>-bvalcurkyd IS NOT INITIAL.
         lv_bcu = <fs_nfm>-bvalcurkyd.
       ENDIF.
-
-      IF <fs_nfm>-ratedetkey IS INITIAL AND lv_nfs IS NOT INITIAL.
-        <fs_nfm>-ratedetkey = lv_nfs.
-      ENDIF.
-      IF <fs_nfm>-exchangekey IS INITIAL AND lv_boesl IS NOT INITIAL.
-        <fs_nfm>-exchangekey = lv_boesl.
-      ENDIF.
-
       IF lv_nfs = '02'.
-        <fs_nfm>-ratedetdat = iv_invoice_date.
-        <fs_nfm>-netrate    = <fs_nfm>-rate.
-        <fs_nfm>-updtype    = 'U'.
-        APPEND <fs_nfm> TO ct_nfm_ch.
         CONTINUE.
       ENDIF.
 
       lv_prefix = COND #( WHEN lv_nfs = '04' OR lv_nfs = '08' THEN 'M1' ELSE 'T1' ).
-      lv_quotyp = |{ lv_prefix }{ condense( val = CONV string( lv_boesl ) ) }|.
+      lv_quotyp = |{ lv_prefix }{ condense( val = CONV string( lv_boesl_ln ) ) }|.
 
       LOOP AT lt_tvgw ASSIGNING FIELD-SYMBOL(<fs_tvgw>).
         IF <fs_tvgw>-nes = lv_nfmkey OR ( strlen( <fs_tvgw>-nes ) >= 3 AND <fs_tvgw>-nes(3) = lv_nfmkey ).
@@ -583,16 +613,85 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
 
       lv_quotno = |{ condense( val = CONV string( lv_nes ) ) }{ condense( val = CONV string( lv_kappl ) ) }{ lv_ekorg }{ lv_bcu }|.
+      ls_quot-quotyp = lv_quotyp.
+      ls_quot-quotno = lv_quotno.
+      INSERT ls_quot INTO TABLE lt_quot.
+    ENDLOOP.
 
-      SELECT price, quotdate
+    IF lt_quot IS NOT INITIAL.
+      SELECT quotyp, quotno, quotdate, price
         FROM oicqp
+        FOR ALL ENTRIES IN @lt_quot
         WHERE quosrc    = 'NF'
-          AND quotyp    = @lv_quotyp
-          AND quotno    = @lv_quotno
+          AND quotyp    = @lt_quot-quotyp
+          AND quotno    = @lt_quot-quotno
           AND quotdate <= @iv_invoice_date
-        INTO TABLE @DATA(lt_oicqp).
+        INTO TABLE @lt_oicqp_db.
+      lt_oicqp = lt_oicqp_db.
+    ENDIF.
 
-      LOOP AT lt_oicqp ASSIGNING FIELD-SYMBOL(<fs_oicqp>).
+    LOOP AT ct_nfm ASSIGNING <fs_nfm> USING KEY primary_key
+         WHERE itm_number = lv_item.
+      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_price, lv_quotdate, lv_prefix, lv_vky, lv_msg, lv_nes, lv_kappl,
+             lv_boesl_ln, lv_nfmkey.
+
+      lv_nfmkey   = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
+      lv_boesl_ln = lv_boesl.
+      IF <fs_nfm>-exchangekey IS NOT INITIAL.
+        lv_boesl_ln = <fs_nfm>-exchangekey.
+      ENDIF.
+
+      READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = lv_nfmkey.
+      IF sy-subrc IS INITIAL.
+        lv_nfs = ls_tdef-nfs.
+        lv_bcu = ls_tdef-bcu.
+      ENDIF.
+
+      IF lv_bcu IS INITIAL AND <fs_nfm>-bvalcurkyd IS NOT INITIAL.
+        lv_bcu = <fs_nfm>-bvalcurkyd.
+      ENDIF.
+
+      IF <fs_nfm>-ratedetkey IS INITIAL AND lv_nfs IS NOT INITIAL.
+        <fs_nfm>-ratedetkey = lv_nfs.
+      ENDIF.
+      IF <fs_nfm>-exchangekey IS INITIAL AND lv_boesl_ln IS NOT INITIAL.
+        <fs_nfm>-exchangekey = lv_boesl_ln.
+      ENDIF.
+
+      IF lv_nfs = '02'.
+        <fs_nfm>-ratedetdat = iv_invoice_date.
+        <fs_nfm>-netrate    = <fs_nfm>-rate.
+        <fs_nfm>-updtype    = 'U'.
+        APPEND <fs_nfm> TO ct_nfm_ch.
+        CONTINUE.
+      ENDIF.
+
+      lv_prefix = COND #( WHEN lv_nfs = '04' OR lv_nfs = '08' THEN 'M1' ELSE 'T1' ).
+      lv_quotyp = |{ lv_prefix }{ condense( val = CONV string( lv_boesl_ln ) ) }|.
+
+      LOOP AT lt_tvgw ASSIGNING <fs_tvgw>.
+        IF <fs_tvgw>-nes = lv_nfmkey OR ( strlen( <fs_tvgw>-nes ) >= 3 AND <fs_tvgw>-nes(3) = lv_nfmkey ).
+          lv_nes   = <fs_tvgw>-nes.
+          lv_kappl = <fs_tvgw>-kappl.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
+
+      IF lv_nes IS INITIAL.
+        lv_nes = lv_nfmkey.
+      ENDIF.
+      IF lv_kappl IS INITIAL.
+        lv_kappl = 'M'.
+      ENDIF.
+      IF lv_bcu IS INITIAL.
+        lv_bcu = 'USD'.
+      ENDIF.
+
+      lv_quotno = |{ condense( val = CONV string( lv_nes ) ) }{ condense( val = CONV string( lv_kappl ) ) }{ lv_ekorg }{ lv_bcu }|.
+
+      LOOP AT lt_oicqp ASSIGNING FIELD-SYMBOL(<fs_oicqp>) USING KEY primary_key
+           WHERE quotyp = lv_quotyp
+             AND quotno = lv_quotno.
         IF lv_nfs = '03' OR lv_nfs = '08'.
           IF <fs_oicqp>-quotdate < iv_invoice_date AND <fs_oicqp>-quotdate >= lv_quotdate.
             lv_quotdate = <fs_oicqp>-quotdate.
