@@ -87,6 +87,10 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
       IMPORTING it_nfm_ch TYPE tt_nfm_std
       CHANGING  ct_return TYPE tt_return.
 
+    CLASS-METHODS repair_nfm_currency
+      IMPORTING iv_purchaseorder TYPE vdm_purchaseorder
+      CHANGING  ct_return        TYPE tt_return.
+
     CLASS-METHODS append_exc
       IMPORTING io_exc           TYPE REF TO cx_root
       RETURNING VALUE(rs_return) TYPE bapiret2.
@@ -100,6 +104,70 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     rs_return-number     = '016'.
     rs_return-message    = lv_text.
     rs_return-message_v1 = lv_text.
+  ENDMETHOD.
+
+  METHOD repair_nfm_currency.
+    DATA: lt_db  TYPE tt_torder,
+          ls_old TYPE /nfm/orderpos_vb,
+          ls_new TYPE /nfm/orderpos_vb,
+          lt_x   TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_y   TYPE STANDARD TABLE OF /nfm/orderpos_vb.
+
+    SELECT *
+      FROM /nfm/torderpos
+      WHERE belnr = @iv_purchaseorder
+      INTO TABLE @lt_db.
+
+    LOOP AT lt_db ASSIGNING FIELD-SYMBOL(<fs_db>).
+      IF <fs_db>-nkw IS NOT INITIAL
+         AND <fs_db>-bcu IS NOT INITIAL
+         AND <fs_db>-bkw IS NOT INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      MOVE-CORRESPONDING <fs_db> TO ls_old.
+      ls_old-updkz = 'U'.
+      ls_new       = ls_old.
+
+      IF ls_new-nkw IS INITIAL.
+        ls_new-nkw = 'USD'.
+      ENDIF.
+      IF ls_new-bcu IS INITIAL.
+        ls_new-bcu = ls_new-nkw.
+      ENDIF.
+      IF ls_new-bkw IS INITIAL.
+        ls_new-bkw = ls_new-nkw.
+      ENDIF.
+      IF ls_new-nks IS INITIAL AND ls_new-nkw = ls_new-bcu.
+        ls_new-nks = 1.
+      ENDIF.
+      ls_new-updkz = 'U'.
+      APPEND ls_old TO lt_y.
+      APPEND ls_new TO lt_x.
+    ENDLOOP.
+
+    IF lt_x IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    TRY.
+        CALL FUNCTION '/NFM/ORDERPOS_SAVE'
+          EXPORTING
+            i_vbtyp     = 'B'
+            i_kappl     = 'M'
+            i_vorgang   = 'V'
+            i_bstyp     = 'F'
+          TABLES
+            t_xorderpos = lt_x
+            t_yorderpos = lt_y.
+      CATCH cx_root INTO DATA(lx_save).
+        APPEND append_exc( lx_save ) TO ct_return.
+        RETURN.
+    ENDTRY.
+
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+      EXPORTING
+        wait = abap_true.
   ENDMETHOD.
 
   METHOD persist_nfm_orderpos.
@@ -229,6 +297,15 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lt_nfm_ret   TYPE tt_return,
           ls_header    TYPE bapimepoheader,
           ls_headerx   TYPE bapimepoheaderx.
+
+    repair_nfm_currency( EXPORTING iv_purchaseorder = is_param-iv_purchaseorder
+                         CHANGING  ct_return        = rt_return ).
+
+    READ TABLE rt_return TRANSPORTING NO FIELDS
+        WITH KEY type = 'E'.
+    IF sy-subrc IS INITIAL.
+      RETURN.
+    ENDIF.
 
     lt_itemx = is_param-t_poitemx.
 
