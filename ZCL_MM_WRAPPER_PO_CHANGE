@@ -61,6 +61,8 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
     TYPES: tt_poitemx TYPE HASHED TABLE OF ty_poitemx WITH UNIQUE KEY po_item,
            tt_cond    TYPE SORTED TABLE OF bapimepocond
                       WITH NON-UNIQUE KEY itm_number cond_type,
+           tt_sched   TYPE SORTED TABLE OF bapimeposchedule
+                      WITH NON-UNIQUE KEY po_item sched_line,
            tt_nfm     TYPE SORTED TABLE OF /nfm/bapidocitm
                       WITH NON-UNIQUE KEY itm_number nfmkey,
            tt_nfm_std TYPE STANDARD TABLE OF /nfm/bapidocitm WITH DEFAULT KEY,
@@ -429,14 +431,19 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lt_itemx     TYPE tt_poitemx,
           ls_cond      TYPE bapimepocond,
           lv_need_pr   TYPE abap_bool,
-          lv_need_nfm  TYPE abap_bool,
+          lv_has_fecha TYPE abap_bool,
+          lt_sched     TYPE STANDARD TABLE OF bapimeposchedule,
+          lt_sched_k   TYPE tt_sched,
+          lt_sched_ch  TYPE STANDARD TABLE OF bapimeposchedule,
+          lt_schedx    TYPE STANDARD TABLE OF bapimeposchedulx,
+          lv_found     TYPE abap_bool,
           lt_nfm       TYPE tt_nfm_std,
           lt_nfm_k     TYPE tt_nfm,
           lt_nfm_ch    TYPE tt_nfm_std,
           lt_nfm_ret   TYPE tt_return,
           ls_header    TYPE bapimepoheader,
           ls_headerx   TYPE bapimepoheaderx,
-          lv_po_item   TYPE ebelp,
+          lv_po_item   TYPE bapimeposchedule-po_item,
           lv_item_bapi TYPE bapimepoitem-po_item.
 
     lt_itemx = is_param-t_poitemx.
@@ -465,11 +472,11 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
 
       IF <fs_item>-invoice_date IS NOT INITIAL.
-        lv_need_nfm = abap_true.
+        lv_has_fecha = abap_true.
       ENDIF.
     ENDLOOP.
 
-    IF lv_need_nfm = abap_true.
+    IF lv_has_fecha = abap_true.
       ensure_nfm_currency( EXPORTING iv_purchaseorder = is_param-iv_purchaseorder
                                      it_poitem        = is_param-t_poitem
                            CHANGING  ct_return        = rt_return ).
@@ -479,14 +486,15 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
     ENDIF.
 
-    IF lv_need_pr = abap_true.
+    IF lv_need_pr = abap_true OR lv_has_fecha = abap_true.
       TRY.
           CALL FUNCTION 'BAPI_PO_GETDETAIL1'
             EXPORTING
               purchaseorder = is_param-iv_purchaseorder
             TABLES
               return        = rt_return
-              pocond        = lt_cond.
+              pocond        = lt_cond
+              poschedule    = lt_sched.
         CATCH cx_root INTO DATA(lx_gd1).
           APPEND append_exc( lx_gd1 ) TO rt_return.
           RETURN.
@@ -499,7 +507,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       CLEAR rt_return.
     ENDIF.
 
-    IF lv_need_nfm = abap_true.
+    IF lv_has_fecha = abap_true.
       TRY.
           CALL FUNCTION 'BAPI_PO_GETDETAIL'
             EXPORTING
@@ -565,30 +573,55 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDLOOP.
     ENDIF.
 
-    IF lv_need_nfm = abap_true.
-      lt_nfm_k = lt_nfm.
+    IF lv_has_fecha = abap_true.
+      lt_sched_k = lt_sched.
+      lt_nfm_k   = lt_nfm.
 
       LOOP AT is_param-t_poitem ASSIGNING <fs_item>.
         IF <fs_item>-invoice_date IS INITIAL.
           CONTINUE.
         ENDIF.
 
-        lv_po_item = <fs_item>-po_item.
+        CLEAR lv_found.
+        lv_po_item = |{ <fs_item>-po_item ALPHA = IN }|.
 
-        apply_nfm_rates( EXPORTING iv_purchaseorder = is_param-iv_purchaseorder
-                                   iv_po_item       = <fs_item>-po_item
-                                   iv_invoice_date  = <fs_item>-invoice_date
-                         CHANGING  ct_nfm           = lt_nfm_k
-                                   ct_nfm_ch        = lt_nfm_ch
-                                   ct_return        = rt_return ).
+        LOOP AT lt_sched_k ASSIGNING FIELD-SYMBOL(<fs_sched>) USING KEY primary_key
+             WHERE po_item = lv_po_item.
+          <fs_sched>-delivery_date = <fs_item>-invoice_date.
+          APPEND <fs_sched> TO lt_sched_ch.
+          APPEND VALUE #( po_item       = <fs_sched>-po_item
+                          sched_line    = <fs_sched>-sched_line
+                          po_itemx      = abap_true
+                          sched_linex   = abap_true
+                          delivery_date = abap_true ) TO lt_schedx.
+          lv_found = abap_true.
+        ENDLOOP.
 
-        READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
-        IF sy-subrc IS INITIAL.
+        IF lv_found = abap_false.
+          APPEND VALUE #( type       = 'E'
+                          id         = 'ZCL_MSG_MM_003'
+                          number     = '029'
+                          message_v1 = is_param-iv_purchaseorder
+                          message_v2 = <fs_item>-po_item ) TO rt_return.
           RETURN.
+        ENDIF.
+
+        IF lt_nfm_k IS NOT INITIAL.
+          apply_nfm_rates( EXPORTING iv_purchaseorder = is_param-iv_purchaseorder
+                                     iv_po_item       = <fs_item>-po_item
+                                     iv_invoice_date  = <fs_item>-invoice_date
+                           CHANGING  ct_nfm           = lt_nfm_k
+                                     ct_nfm_ch        = lt_nfm_ch
+                                     ct_return        = rt_return ).
+
+          READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
+          IF sy-subrc IS INITIAL.
+            RETURN.
+          ENDIF.
         ENDIF.
       ENDLOOP.
 
-      IF lt_nfm_ch IS INITIAL.
+      IF lt_nfm IS NOT INITIAL AND lt_nfm_ch IS INITIAL.
         APPEND VALUE #( type       = 'E'
                         id         = 'ZCL_MSG_MM_003'
                         number     = '031'
@@ -609,7 +642,9 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
             poitem        = lt_poitem
             poitemx       = lt_poitemx
             pocond        = lt_pocond
-            pocondx       = lt_pocondx.
+            pocondx       = lt_pocondx
+            poschedule    = lt_sched_ch
+            poschedulex   = lt_schedx.
       CATCH cx_root INTO DATA(lx_ch).
         APPEND append_exc( lx_ch ) TO rt_return.
         RETURN.
