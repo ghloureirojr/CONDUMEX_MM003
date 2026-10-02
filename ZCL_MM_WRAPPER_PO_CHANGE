@@ -59,11 +59,8 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
   PROTECTED SECTION.
   PRIVATE SECTION.
     TYPES: tt_poitemx TYPE HASHED TABLE OF ty_poitemx WITH UNIQUE KEY po_item,
-           tt_pocond  TYPE STANDARD TABLE OF bapimepocond WITH DEFAULT KEY,
            tt_cond    TYPE SORTED TABLE OF bapimepocond
                       WITH NON-UNIQUE KEY itm_number cond_type,
-           tt_sched   TYPE SORTED TABLE OF bapimeposchedule
-                      WITH NON-UNIQUE KEY po_item sched_line,
            tt_nfm     TYPE SORTED TABLE OF /nfm/bapidocitm
                       WITH NON-UNIQUE KEY itm_number nfmkey,
            tt_nfm_std TYPE STANDARD TABLE OF /nfm/bapidocitm WITH DEFAULT KEY,
@@ -104,9 +101,10 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
       IMPORTING io_exc           TYPE REF TO cx_root
       RETURNING VALUE(rs_return) TYPE bapiret2.
 
-    CLASS-METHODS is_nfm_conv_error
-      IMPORTING is_return        TYPE bapiret2
-      RETURNING VALUE(rv_result) TYPE abap_bool.
+    CLASS-METHODS append_nfm_currency_error
+      IMPORTING iv_belnr         TYPE /nfm/torderpos-belnr
+                iv_posnr         TYPE /nfm/torderpos-posnr
+      RETURNING VALUE(rs_return) TYPE bapiret2.
 ENDCLASS.
 
 CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
@@ -119,23 +117,25 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     rs_return-message_v1 = lv_text.
   ENDMETHOD.
 
-  METHOD is_nfm_conv_error.
-    IF is_return-id = '/NFM/CA' AND is_return-number = '552'.
-      rv_result = abap_true.
-    ENDIF.
+  METHOD append_nfm_currency_error.
+    rs_return-type       = 'E'.
+    rs_return-id         = 'ZCL_MSG_MM_003'.
+    rs_return-number     = '037'.
+    rs_return-message_v1 = iv_belnr.
+    rs_return-message_v2 = iv_posnr.
   ENDMETHOD.
 
   METHOD fill_nfm_currency.
-    IF cs_orderpos-nkw IS INITIAL.
-      cs_orderpos-nkw = 'USD'.
+    IF cs_orderpos-nkw IS INITIAL AND cs_orderpos-bcu IS NOT INITIAL.
+      cs_orderpos-nkw = cs_orderpos-bcu.
     ENDIF.
-    IF cs_orderpos-bcu IS INITIAL.
+    IF cs_orderpos-bcu IS INITIAL AND cs_orderpos-nkw IS NOT INITIAL.
       cs_orderpos-bcu = cs_orderpos-nkw.
     ENDIF.
-    IF cs_orderpos-bkw IS INITIAL.
+    IF cs_orderpos-bkw IS INITIAL AND cs_orderpos-nkw IS NOT INITIAL.
       cs_orderpos-bkw = cs_orderpos-nkw.
     ENDIF.
-    IF cs_orderpos-nks IS INITIAL AND cs_orderpos-nkw = cs_orderpos-bcu.
+    IF cs_orderpos-nks IS INITIAL AND cs_orderpos-nkw IS NOT INITIAL AND cs_orderpos-nkw = cs_orderpos-bcu.
       cs_orderpos-nks = 1.
     ENDIF.
   ENDMETHOD.
@@ -223,25 +223,33 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
-      CLEAR: ls_old, ls_new.
+      CLEAR: ls_old, ls_new, ls_tdef.
       MOVE-CORRESPONDING <fs_db> TO ls_old.
       fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
       ls_old-updkz = 'U'.
       ls_new       = ls_old.
 
-      IF ls_new-nfs IS INITIAL.
-        READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = <fs_db>-nes.
-        IF sy-subrc IS INITIAL.
+      READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = <fs_db>-nes.
+      IF sy-subrc IS INITIAL.
+        IF ls_new-nfs IS INITIAL.
           ls_new-nfs = ls_tdef-nfs.
-          IF ls_new-bcu IS INITIAL AND ls_tdef-bcu IS NOT INITIAL.
-            ls_new-bcu = ls_tdef-bcu.
-            ls_new-nkw = ls_tdef-bcu.
-            ls_new-bkw = ls_tdef-bcu.
-          ENDIF.
+        ENDIF.
+        IF ls_new-nkw IS INITIAL AND ls_tdef-bcu IS NOT INITIAL.
+          ls_new-nkw = ls_tdef-bcu.
+          ls_new-bcu = ls_tdef-bcu.
+          ls_new-bkw = ls_tdef-bcu.
         ENDIF.
       ENDIF.
 
       fill_nfm_currency( CHANGING cs_orderpos = ls_new ).
+
+      IF ls_new-nkw IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = <fs_db>-belnr
+                                          iv_posnr = <fs_db>-posnr ) TO ct_return.
+        RETURN.
+      ENDIF.
+
+      fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
       ls_new-updkz = 'U'.
       APPEND ls_old TO lt_y.
       APPEND ls_new TO lt_x.
@@ -269,21 +277,16 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
              bcu TYPE /nfm/bcu,
            END OF ty_tdef.
 
-    DATA: lt_db     TYPE tt_torder,
-          ls_old    TYPE /nfm/orderpos_vb,
-          ls_new    TYPE /nfm/orderpos_vb,
-          lt_x      TYPE STANDARD TABLE OF /nfm/orderpos_vb,
-          lt_y      TYPE STANDARD TABLE OF /nfm/orderpos_vb,
-          lt_tdef   TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
-          ls_tdef   TYPE ty_tdef,
-          lv_ndt_db TYPE /nfm/ndt,
-          lv_nku_db TYPE /nfm/nku,
-          lv_nkw_db TYPE /nfm/nkw,
-          lv_nfs_db TYPE /nfm/nfs,
-          lv_bsl_db TYPE /nfm/boesl,
-          lv_waers  TYPE /nfm/nkw,
-          lv_vky    TYPE /nfm/vky,
-          ls_save   TYPE bapiret2.
+    DATA: lt_db    TYPE tt_torder,
+          ls_old   TYPE /nfm/orderpos_vb,
+          ls_new   TYPE /nfm/orderpos_vb,
+          lt_x     TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_y     TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_tdef  TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
+          ls_tdef  TYPE ty_tdef,
+          lv_waers TYPE /nfm/nkw,
+          lv_vky   TYPE /nfm/vky,
+          ls_save  TYPE bapiret2.
 
     IF it_nfm_ch IS INITIAL.
       RETURN.
@@ -350,7 +353,15 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         ENDIF.
       ENDIF.
       IF lv_waers IS INITIAL.
-        lv_waers = 'USD'.
+        lv_waers = ls_old-nkw.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        lv_waers = ls_old-bcu.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = <fs_nfm>-doc_number
+                                          iv_posnr = <fs_nfm>-itm_number ) TO ct_return.
+        RETURN.
       ENDIF.
 
       ls_new-ndt = <fs_nfm>-ratedetdat.
@@ -390,6 +401,13 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
       fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
       fill_nfm_currency( CHANGING cs_orderpos = ls_new ).
+
+      IF ls_old-nkw IS INITIAL OR ls_new-nkw IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = <fs_nfm>-doc_number
+                                          iv_posnr = <fs_nfm>-itm_number ) TO ct_return.
+        RETURN.
+      ENDIF.
+
       ls_new-updkz = 'U'.
       APPEND ls_old TO lt_y.
       APPEND ls_new TO lt_x.
@@ -398,27 +416,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     ls_save = save_nfm_orderpos( it_x = lt_x it_y = lt_y ).
     IF ls_save-type = 'E'.
       APPEND ls_save TO ct_return.
-      RETURN.
-    ENDIF.
-
-    SELECT SINGLE ndt, nku, nkw, nfs, bsl
-      FROM /nfm/torderpos
-      WHERE belnr = @ls_new-belnr
-        AND posnr = @ls_new-posnr
-        AND nes   = @ls_new-nes
-      INTO (@lv_ndt_db, @lv_nku_db, @lv_nkw_db, @lv_nfs_db, @lv_bsl_db).
-
-    IF lv_nkw_db IS INITIAL AND ls_new IS NOT INITIAL.
-      CLEAR: lt_x, lt_y, ls_old.
-      ls_old = ls_new.
-      fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
-      fill_nfm_currency( CHANGING cs_orderpos = ls_new ).
-      APPEND ls_old TO lt_y.
-      APPEND ls_new TO lt_x.
-      ls_save = save_nfm_orderpos( it_x = lt_x it_y = lt_y ).
-      IF ls_save-type = 'E'.
-        APPEND ls_save TO ct_return.
-      ENDIF.
     ENDIF.
   ENDMETHOD.
 
@@ -433,8 +430,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           ls_cond      TYPE bapimepocond,
           lv_need_pr   TYPE abap_bool,
           lv_need_nfm  TYPE abap_bool,
-          lv_hard_err  TYPE abap_bool,
-          lt_sched     TYPE STANDARD TABLE OF bapimeposchedule,
           lt_nfm       TYPE tt_nfm_std,
           lt_nfm_k     TYPE tt_nfm,
           lt_nfm_ch    TYPE tt_nfm_std,
@@ -491,18 +486,13 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
               purchaseorder = is_param-iv_purchaseorder
             TABLES
               return        = rt_return
-              pocond        = lt_cond
-              poschedule    = lt_sched.
+              pocond        = lt_cond.
         CATCH cx_root INTO DATA(lx_gd1).
           APPEND append_exc( lx_gd1 ) TO rt_return.
           RETURN.
       ENDTRY.
 
-      LOOP AT rt_return ASSIGNING FIELD-SYMBOL(<fs_ret>) WHERE type = 'E' OR type = 'A'.
-        IF is_nfm_conv_error( <fs_ret> ) = abap_true.
-          <fs_ret>-type = 'W'.
-          CONTINUE.
-        ENDIF.
+      LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
         RETURN.
       ENDLOOP.
 
@@ -525,11 +515,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
                           message_v1 = is_param-iv_purchaseorder ) TO rt_return.
       ENDTRY.
 
-      LOOP AT lt_nfm_ret ASSIGNING <fs_ret> WHERE type = 'E' OR type = 'A'.
-        IF is_nfm_conv_error( <fs_ret> ) = abap_true.
-          CONTINUE.
-        ENDIF.
-        APPEND <fs_ret> TO rt_return.
+      LOOP AT lt_nfm_ret ASSIGNING FIELD-SYMBOL(<fs_nfm_ret>) WHERE type = 'E' OR type = 'A'.
+        APPEND <fs_nfm_ret> TO rt_return.
       ENDLOOP.
 
       READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
@@ -628,17 +615,9 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         RETURN.
     ENDTRY.
 
-    LOOP AT rt_return ASSIGNING <fs_ret> WHERE type = 'E' OR type = 'A'.
-      IF is_nfm_conv_error( <fs_ret> ) = abap_true.
-        <fs_ret>-type = 'W'.
-        CONTINUE.
-      ENDIF.
-      lv_hard_err = abap_true.
-    ENDLOOP.
-
-    IF lv_hard_err = abap_true.
+    LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
       RETURN.
-    ENDIF.
+    ENDLOOP.
 
     CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
       EXPORTING
@@ -785,6 +764,14 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       IF lv_bcu IS INITIAL AND <fs_nfm>-bvalcurkyd IS NOT INITIAL.
         lv_bcu = <fs_nfm>-bvalcurkyd.
       ENDIF.
+      IF lv_bcu IS INITIAL AND <fs_nfm>-ratecurky IS NOT INITIAL.
+        lv_bcu = CONV /nfm/bcu( <fs_nfm>-ratecurky ).
+      ENDIF.
+      IF lv_bcu IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = iv_purchaseorder
+                                          iv_posnr = lv_item ) TO ct_return.
+        RETURN.
+      ENDIF.
 
       IF lv_nfs = '02' AND <fs_nfm>-rate IS NOT INITIAL.
         CONTINUE.
@@ -806,9 +793,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
       IF lv_kappl IS INITIAL.
         lv_kappl = 'M'.
-      ENDIF.
-      IF lv_bcu IS INITIAL.
-        lv_bcu = 'USD'.
       ENDIF.
 
       lv_quotno = |{ condense( val = CONV string( lv_nes ) ) }{ condense( val = CONV string( lv_kappl ) ) }{ lv_ekorg }{ lv_bcu }|.
@@ -849,8 +833,13 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       IF lv_bcu IS INITIAL AND <fs_nfm>-bvalcurkyd IS NOT INITIAL.
         lv_bcu = <fs_nfm>-bvalcurkyd.
       ENDIF.
+      IF lv_bcu IS INITIAL AND <fs_nfm>-ratecurky IS NOT INITIAL.
+        lv_bcu = CONV /nfm/bcu( <fs_nfm>-ratecurky ).
+      ENDIF.
       IF lv_bcu IS INITIAL.
-        lv_bcu = 'USD'.
+        APPEND append_nfm_currency_error( iv_belnr = iv_purchaseorder
+                                          iv_posnr = lv_item ) TO ct_return.
+        RETURN.
       ENDIF.
 
       IF <fs_nfm>-ratedetkey IS INITIAL AND lv_nfs IS NOT INITIAL.
