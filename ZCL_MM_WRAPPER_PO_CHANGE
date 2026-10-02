@@ -109,7 +109,9 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lt_x      TYPE STANDARD TABLE OF /nfm/orderpos_vb,
           lt_y      TYPE STANDARD TABLE OF /nfm/orderpos_vb,
           lv_ndt_db TYPE /nfm/ndt,
-          lv_nku_db TYPE /nfm/nku.
+          lv_nku_db TYPE /nfm/nku,
+          lv_nkw_db TYPE /nfm/nkw,
+          lv_waers  TYPE /nfm/nkw.
 
     IF it_nfm_ch IS INITIAL.
       RETURN.
@@ -141,11 +143,36 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       MOVE-CORRESPONDING <fs_db> TO ls_old.
       ls_old-updkz = 'U'.
       ls_new       = ls_old.
-      ls_new-ndt   = <fs_nfm>-ratedetdat.
-      ls_new-kta   = <fs_nfm>-actratedat.
-      ls_new-nku   = <fs_nfm>-ratedoccur.
-      ls_new-nkn   = <fs_nfm>-rate.
-      ls_new-nno   = <fs_nfm>-rate.
+
+      lv_waers = <fs_nfm>-ratecurky.
+      IF lv_waers IS INITIAL.
+        lv_waers = <fs_nfm>-bvalcurkyd.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        lv_waers = ls_old-nkw.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        lv_waers = ls_old-bcu.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        lv_waers = 'USD'.
+      ENDIF.
+
+      ls_new-ndt = <fs_nfm>-ratedetdat.
+      ls_new-kta = <fs_nfm>-actratedat.
+      ls_new-nku = <fs_nfm>-ratedoccur.
+      ls_new-nkn = <fs_nfm>-rate.
+      ls_new-nno = <fs_nfm>-rate.
+      ls_new-nkw = lv_waers.
+      IF ls_new-bcu IS INITIAL.
+        ls_new-bcu = lv_waers.
+      ENDIF.
+      IF ls_new-bkw IS INITIAL.
+        ls_new-bkw = lv_waers.
+      ENDIF.
+      IF ls_new-nks IS INITIAL AND ls_new-nkw = ls_new-bcu.
+        ls_new-nks = 1.
+      ENDIF.
       ls_new-updkz = 'U'.
       APPEND ls_old TO lt_y.
       APPEND ls_new TO lt_x.
@@ -170,12 +197,12 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         RETURN.
     ENDTRY.
 
-    SELECT SINGLE ndt, nku
+    SELECT SINGLE ndt, nku, nkw
       FROM /nfm/torderpos
       WHERE belnr = @ls_new-belnr
         AND posnr = @ls_new-posnr
         AND nes   = @ls_new-nes
-      INTO (@lv_ndt_db, @lv_nku_db).
+      INTO (@lv_ndt_db, @lv_nku_db, @lv_nkw_db).
   ENDMETHOD.
 
   METHOD call_bapi_change_pos.
