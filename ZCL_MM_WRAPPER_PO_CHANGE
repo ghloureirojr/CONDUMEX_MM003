@@ -546,6 +546,13 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         lv_bcu = <fs_nfm>-bvalcurkyd.
       ENDIF.
 
+      IF <fs_nfm>-ratedetkey IS INITIAL AND lv_nfs IS NOT INITIAL.
+        <fs_nfm>-ratedetkey = lv_nfs.
+      ENDIF.
+      IF <fs_nfm>-exchangekey IS INITIAL AND lv_boesl IS NOT INITIAL.
+        <fs_nfm>-exchangekey = lv_boesl.
+      ENDIF.
+
       IF lv_nfs = '02'.
         <fs_nfm>-ratedetdat = iv_invoice_date.
         <fs_nfm>-netrate    = <fs_nfm>-rate.
