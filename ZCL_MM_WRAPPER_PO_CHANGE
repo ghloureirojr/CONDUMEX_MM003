@@ -66,7 +66,9 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
                       WITH NON-UNIQUE KEY po_item sched_line,
            tt_nfm     TYPE SORTED TABLE OF /nfm/bapidocitm
                       WITH NON-UNIQUE KEY itm_number nfmkey,
-           tt_nfm_std TYPE STANDARD TABLE OF /nfm/bapidocitm WITH DEFAULT KEY.
+           tt_nfm_std TYPE STANDARD TABLE OF /nfm/bapidocitm WITH DEFAULT KEY,
+           tt_torder  TYPE SORTED TABLE OF /nfm/torderpos
+                      WITH NON-UNIQUE KEY belnr posnr nes.
 
     CLASS-METHODS get_gross_condition
       IMPORTING it_cond        TYPE tt_cond
@@ -101,18 +103,34 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD persist_nfm_orderpos.
-    DATA: ls_db  TYPE /nfm/torderpos,
+    DATA: lt_db  TYPE tt_torder,
           ls_old TYPE /nfm/orderpos_vb,
           ls_new TYPE /nfm/orderpos_vb,
           lt_x   TYPE STANDARD TABLE OF /nfm/orderpos_vb,
           lt_y   TYPE STANDARD TABLE OF /nfm/orderpos_vb.
 
+    IF it_nfm_ch IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    SELECT *
+      FROM /nfm/torderpos
+      FOR ALL ENTRIES IN @it_nfm_ch
+      WHERE belnr = @it_nfm_ch-doc_number
+        AND nes   = @it_nfm_ch-nfmkey
+      INTO TABLE @lt_db.
+
     LOOP AT it_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm>).
-      SELECT SINGLE *
-        FROM /nfm/torderpos
-        WHERE belnr = @<fs_nfm>-doc_number
-          AND nes   = @<fs_nfm>-nfmkey
-        INTO @ls_db.
+      READ TABLE lt_db ASSIGNING FIELD-SYMBOL(<fs_db>)
+          WITH TABLE KEY belnr = <fs_nfm>-doc_number
+                         posnr = <fs_nfm>-itm_number
+                         nes   = <fs_nfm>-nfmkey.
+
+      IF sy-subrc IS NOT INITIAL.
+        READ TABLE lt_db ASSIGNING <fs_db>
+            WITH TABLE KEY belnr = <fs_nfm>-doc_number
+                           nes   = <fs_nfm>-nfmkey.
+      ENDIF.
 
       IF sy-subrc IS NOT INITIAL.
         APPEND VALUE #( type       = 'E'
@@ -123,7 +141,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         RETURN.
       ENDIF.
 
-      MOVE-CORRESPONDING ls_db TO ls_old.
+      MOVE-CORRESPONDING <fs_db> TO ls_old.
       ls_old-updkz = 'U'.
       ls_new       = ls_old.
       ls_new-ndt   = <fs_nfm>-ratedetdat.
