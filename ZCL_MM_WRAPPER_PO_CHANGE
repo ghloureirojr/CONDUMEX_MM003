@@ -368,15 +368,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
                         message_v2 = lv_po_item ) TO rt_return.
         RETURN.
       ENDIF.
-
-      persist_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_ch
-                            CHANGING  ct_return = rt_return ).
-
-      READ TABLE rt_return TRANSPORTING NO FIELDS
-          WITH KEY type = 'E'.
-      IF sy-subrc IS INITIAL.
-        RETURN.
-      ENDIF.
     ENDIF.
 
     TRY.
@@ -392,8 +383,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
             pocond        = lt_pocond
             pocondx       = lt_pocondx
             poschedule    = lt_sched_ch
-            poschedulex   = lt_schedx
-            nfmetallitms  = lt_nfm_ch.
+            poschedulex   = lt_schedx.
       CATCH cx_root INTO DATA(lx_ch).
         APPEND append_exc( lx_ch ) TO rt_return.
         RETURN.
@@ -406,6 +396,21 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
       EXPORTING
         wait = abap_true.
+
+    IF lt_nfm_ch IS NOT INITIAL.
+      persist_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_ch
+                            CHANGING  ct_return = rt_return ).
+
+      READ TABLE rt_return TRANSPORTING NO FIELDS
+          WITH KEY type = 'E'.
+      IF sy-subrc IS INITIAL.
+        RETURN.
+      ENDIF.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+    ENDIF.
   ENDMETHOD.
 
   METHOD apply_nfm_rates.
