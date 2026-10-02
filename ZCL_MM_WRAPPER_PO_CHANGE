@@ -87,6 +87,9 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
       IMPORTING it_nfm_ch TYPE tt_nfm_std
       CHANGING  ct_return TYPE tt_return.
 
+    CLASS-METHODS fill_nfm_currency
+      CHANGING cs_orderpos TYPE /nfm/orderpos_vb.
+
     CLASS-METHODS append_exc
       IMPORTING io_exc           TYPE REF TO cx_root
       RETURNING VALUE(rs_return) TYPE bapiret2.
@@ -102,22 +105,59 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     rs_return-message_v1 = lv_text.
   ENDMETHOD.
 
+  METHOD fill_nfm_currency.
+    IF cs_orderpos-nkw IS INITIAL.
+      cs_orderpos-nkw = 'USD'.
+    ENDIF.
+    IF cs_orderpos-bcu IS INITIAL.
+      cs_orderpos-bcu = cs_orderpos-nkw.
+    ENDIF.
+    IF cs_orderpos-bkw IS INITIAL.
+      cs_orderpos-bkw = cs_orderpos-nkw.
+    ENDIF.
+    IF cs_orderpos-nks IS INITIAL AND cs_orderpos-nkw = cs_orderpos-bcu.
+      cs_orderpos-nks = 1.
+    ENDIF.
+  ENDMETHOD.
+
   METHOD persist_nfm_orderpos.
+    TYPES: BEGIN OF ty_tdef,
+             nes TYPE /nfm/nes,
+             nfs TYPE /nfm/nfs,
+             bcu TYPE /nfm/bcu,
+           END OF ty_tdef.
+
     DATA: lt_db     TYPE tt_torder,
           ls_old    TYPE /nfm/orderpos_vb,
           ls_new    TYPE /nfm/orderpos_vb,
           lt_x      TYPE STANDARD TABLE OF /nfm/orderpos_vb,
           lt_y      TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_tdef   TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
+          ls_tdef   TYPE ty_tdef,
           lv_ndt_db TYPE /nfm/ndt,
           lv_nku_db TYPE /nfm/nku,
           lv_nkw_db TYPE /nfm/nkw,
           lv_nfs_db TYPE /nfm/nfs,
           lv_bsl_db TYPE /nfm/boesl,
-          lv_waers  TYPE /nfm/nkw.
+          lv_waers  TYPE /nfm/nkw,
+          lv_vky    TYPE /nfm/vky.
 
     IF it_nfm_ch IS INITIAL.
       RETURN.
     ENDIF.
+
+    LOOP AT it_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_chk>).
+      IF <fs_chk>-rate IS INITIAL AND <fs_chk>-ratedoccur IS INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '034'
+                        message_v1 = <fs_chk>-doc_number
+                        message_v2 = <fs_chk>-itm_number ) TO ct_return.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    lv_vky = CONV /nfm/vky( it_nfm_ch[ 1 ]-doc_number ).
 
     SELECT *
       FROM /nfm/torderpos
@@ -126,6 +166,14 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         AND posnr = @it_nfm_ch-itm_number
         AND nes   = @it_nfm_ch-nfmkey
       INTO TABLE @lt_db.
+
+    SELECT nes, nfs, bcu
+      FROM /nfm/tdefault
+      FOR ALL ENTRIES IN @it_nfm_ch
+      WHERE vtp = 'E'
+        AND vky = @lv_vky
+        AND nes = @it_nfm_ch-nfmkey
+      INTO TABLE @lt_tdef.
 
     LOOP AT it_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm>).
       READ TABLE lt_db ASSIGNING FIELD-SYMBOL(<fs_db>)
@@ -143,6 +191,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
 
       MOVE-CORRESPONDING <fs_db> TO ls_old.
+      fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
       ls_old-updkz = 'U'.
       ls_new       = ls_old.
 
@@ -152,12 +201,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
       IF lv_waers IS INITIAL.
         lv_waers = ls_old-nkw.
-      ENDIF.
-      IF lv_waers IS INITIAL.
-        lv_waers = ls_old-bcu.
-      ENDIF.
-      IF lv_waers IS INITIAL.
-        lv_waers = 'USD'.
       ENDIF.
 
       ls_new-ndt = <fs_nfm>-ratedetdat.
@@ -173,6 +216,12 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       IF ls_new-nfs IS INITIAL.
         ls_new-nfs = ls_old-nfs.
       ENDIF.
+      IF ls_new-nfs IS INITIAL.
+        READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = <fs_nfm>-nfmkey.
+        IF sy-subrc IS INITIAL.
+          ls_new-nfs = ls_tdef-nfs.
+        ENDIF.
+      ENDIF.
 
       IF <fs_nfm>-exchangekey IS NOT INITIAL.
         ls_new-bsl = <fs_nfm>-exchangekey.
@@ -185,15 +234,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         ls_new-neb = <fs_nfm>-basekey.
       ENDIF.
 
-      IF ls_new-bcu IS INITIAL.
-        ls_new-bcu = lv_waers.
-      ENDIF.
-      IF ls_new-bkw IS INITIAL.
-        ls_new-bkw = lv_waers.
-      ENDIF.
-      IF ls_new-nks IS INITIAL AND ls_new-nkw = ls_new-bcu.
-        ls_new-nks = 1.
-      ENDIF.
+      fill_nfm_currency( CHANGING cs_orderpos = ls_new ).
       ls_new-updkz = 'U'.
       APPEND ls_old TO lt_y.
       APPEND ls_new TO lt_x.
@@ -485,35 +526,35 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
              price    TYPE oic_price,
            END OF ty_oicqp.
 
-    DATA: lv_item      TYPE /nfm/bapidocitm-itm_number,
-          lv_ekorg     TYPE ekorg,
-          lv_lifnr     TYPE lifnr,
-          lv_matnr     TYPE matnr,
-          lv_matnr18   TYPE matnr18,
-          lv_werks     TYPE werks_d,
-          lv_boesl     TYPE /nfm/boesl,
-          lv_boesl_ln  TYPE /nfm/boesl,
-          lv_nfs       TYPE /nfm/nfs,
-          lv_bcu       TYPE /nfm/bcu,
-          lv_vky       TYPE /nfm/vky,
-          lv_quotyp    TYPE oic_quotyp,
-          lv_quotno    TYPE oic_quota,
-          lv_nfmkey    TYPE /nfm/nes,
-          lv_nes       TYPE /nfm/nes,
-          lv_kappl     TYPE kappl,
-          lv_price     TYPE oic_price,
-          lv_quotdate  TYPE oic_qtdat,
-          lv_prefix    TYPE c LENGTH 2,
-          lv_msg       TYPE bapi_msg,
-          lt_tvgw      TYPE STANDARD TABLE OF ty_tvgw,
-          lt_nes       TYPE SORTED TABLE OF ty_nes WITH UNIQUE KEY nes,
-          ls_nes       TYPE ty_nes,
-          lt_tdef      TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
-          ls_tdef      TYPE ty_tdef,
-          lt_quot      TYPE SORTED TABLE OF ty_quot WITH UNIQUE KEY quotyp quotno,
-          ls_quot      TYPE ty_quot,
-          lt_oicqp     TYPE SORTED TABLE OF ty_oicqp WITH NON-UNIQUE KEY quotyp quotno,
-          lt_oicqp_db  TYPE STANDARD TABLE OF ty_oicqp.
+    DATA: lv_item     TYPE /nfm/bapidocitm-itm_number,
+          lv_ekorg    TYPE ekorg,
+          lv_lifnr    TYPE lifnr,
+          lv_matnr    TYPE matnr,
+          lv_matnr18  TYPE matnr18,
+          lv_werks    TYPE werks_d,
+          lv_boesl    TYPE /nfm/boesl,
+          lv_boesl_ln TYPE /nfm/boesl,
+          lv_nfs      TYPE /nfm/nfs,
+          lv_bcu      TYPE /nfm/bcu,
+          lv_vky      TYPE /nfm/vky,
+          lv_quotyp   TYPE oic_quotyp,
+          lv_quotno   TYPE oic_quota,
+          lv_nfmkey   TYPE /nfm/nes,
+          lv_nes      TYPE /nfm/nes,
+          lv_kappl    TYPE kappl,
+          lv_price    TYPE oic_price,
+          lv_quotdate TYPE oic_qtdat,
+          lv_prefix   TYPE c LENGTH 2,
+          lv_msg      TYPE bapi_msg,
+          lt_tvgw     TYPE STANDARD TABLE OF ty_tvgw,
+          lt_nes      TYPE SORTED TABLE OF ty_nes WITH UNIQUE KEY nes,
+          ls_nes      TYPE ty_nes,
+          lt_tdef     TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
+          ls_tdef     TYPE ty_tdef,
+          lt_quot     TYPE SORTED TABLE OF ty_quot WITH UNIQUE KEY quotyp quotno,
+          ls_quot     TYPE ty_quot,
+          lt_oicqp    TYPE SORTED TABLE OF ty_oicqp WITH NON-UNIQUE KEY quotyp quotno,
+          lt_oicqp_db TYPE STANDARD TABLE OF ty_oicqp.
 
     lv_item = |{ iv_po_item ALPHA = IN }|.
     lv_vky  = CONV /nfm/vky( iv_purchaseorder ).
@@ -587,7 +628,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       IF lv_bcu IS INITIAL AND <fs_nfm>-bvalcurkyd IS NOT INITIAL.
         lv_bcu = <fs_nfm>-bvalcurkyd.
       ENDIF.
-      IF lv_nfs = '02'.
+
+      IF lv_nfs = '02' AND <fs_nfm>-rate IS NOT INITIAL.
         CONTINUE.
       ENDIF.
 
@@ -632,7 +674,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
     LOOP AT ct_nfm ASSIGNING <fs_nfm> USING KEY primary_key
          WHERE itm_number = lv_item.
-      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_price, lv_quotdate, lv_prefix, lv_vky, lv_msg, lv_nes, lv_kappl,
+      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_price, lv_quotdate, lv_prefix, lv_msg, lv_nes, lv_kappl,
              lv_boesl_ln, lv_nfmkey.
 
       lv_nfmkey   = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
@@ -658,9 +700,10 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         <fs_nfm>-exchangekey = lv_boesl_ln.
       ENDIF.
 
-      IF lv_nfs = '02'.
+      IF lv_nfs = '02' AND <fs_nfm>-rate IS NOT INITIAL.
         <fs_nfm>-ratedetdat = iv_invoice_date.
         <fs_nfm>-netrate    = <fs_nfm>-rate.
+        <fs_nfm>-ratedoccur = <fs_nfm>-rate.
         <fs_nfm>-updtype    = 'U'.
         APPEND <fs_nfm> TO ct_nfm_ch.
         CONTINUE.
