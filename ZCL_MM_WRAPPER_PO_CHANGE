@@ -68,7 +68,8 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
                       WITH NON-UNIQUE KEY itm_number nfmkey,
            tt_nfm_std TYPE STANDARD TABLE OF /nfm/bapidocitm WITH DEFAULT KEY,
            tt_torder  TYPE SORTED TABLE OF /nfm/torderpos
-                      WITH NON-UNIQUE KEY belnr posnr nes.
+                      WITH NON-UNIQUE KEY belnr posnr nes
+                      WITH NON-UNIQUE SORTED KEY k_doc COMPONENTS belnr nes.
 
     CLASS-METHODS get_gross_condition
       IMPORTING it_cond        TYPE tt_cond
@@ -128,8 +129,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
       IF sy-subrc IS NOT INITIAL.
         READ TABLE lt_db ASSIGNING <fs_db>
-            WITH TABLE KEY belnr = <fs_nfm>-doc_number
-                           nes   = <fs_nfm>-nfmkey.
+            WITH TABLE KEY k_doc COMPONENTS belnr = <fs_nfm>-doc_number
+                                            nes   = <fs_nfm>-nfmkey.
       ENDIF.
 
       IF sy-subrc IS NOT INITIAL.
