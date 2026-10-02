@@ -66,10 +66,7 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
                       WITH NON-UNIQUE KEY po_item sched_line,
            tt_nfm     TYPE SORTED TABLE OF /nfm/bapidocitm
                       WITH NON-UNIQUE KEY itm_number nfmkey,
-           tt_nfm_std TYPE STANDARD TABLE OF /nfm/bapidocitm WITH DEFAULT KEY,
-           tt_torder  TYPE SORTED TABLE OF /nfm/torderpos
-                      WITH NON-UNIQUE KEY belnr posnr nes
-                      WITH NON-UNIQUE SORTED KEY k_doc COMPONENTS belnr nes.
+           tt_nfm_std TYPE STANDARD TABLE OF /nfm/bapidocitm WITH DEFAULT KEY.
 
     CLASS-METHODS get_gross_condition
       IMPORTING it_cond        TYPE tt_cond
@@ -84,10 +81,6 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
                 ct_nfm_ch        TYPE tt_nfm_std
                 ct_return        TYPE tt_return.
 
-    CLASS-METHODS persist_nfm_orderpos
-      IMPORTING it_nfm_ch TYPE tt_nfm_std
-      CHANGING  ct_return TYPE tt_return.
-
     CLASS-METHODS append_exc
       IMPORTING io_exc           TYPE REF TO cx_root
       RETURNING VALUE(rs_return) TYPE bapiret2.
@@ -101,77 +94,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     rs_return-number     = '016'.
     rs_return-message    = lv_text.
     rs_return-message_v1 = lv_text.
-  ENDMETHOD.
-
-  METHOD persist_nfm_orderpos.
-    DATA: lt_db  TYPE tt_torder,
-          ls_old TYPE /nfm/orderpos_vb,
-          ls_new TYPE /nfm/orderpos_vb,
-          lt_x   TYPE STANDARD TABLE OF /nfm/orderpos_vb,
-          lt_y   TYPE STANDARD TABLE OF /nfm/orderpos_vb.
-
-    IF it_nfm_ch IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    SELECT *
-      FROM /nfm/torderpos
-      FOR ALL ENTRIES IN @it_nfm_ch
-      WHERE belnr = @it_nfm_ch-doc_number
-        AND nes   = @it_nfm_ch-nfmkey
-      INTO TABLE @lt_db.
-
-    LOOP AT it_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm>).
-      READ TABLE lt_db ASSIGNING FIELD-SYMBOL(<fs_db>)
-          WITH TABLE KEY belnr = <fs_nfm>-doc_number
-                         posnr = <fs_nfm>-itm_number
-                         nes   = <fs_nfm>-nfmkey.
-
-      IF sy-subrc IS NOT INITIAL.
-        READ TABLE lt_db ASSIGNING <fs_db>
-            WITH TABLE KEY k_doc COMPONENTS belnr = <fs_nfm>-doc_number
-                                            nes   = <fs_nfm>-nfmkey.
-      ENDIF.
-
-      IF sy-subrc IS NOT INITIAL.
-        APPEND VALUE #( type       = 'E'
-                        id         = 'ZCL_MSG_MM_003'
-                        number     = '031'
-                        message_v1 = <fs_nfm>-doc_number
-                        message_v2 = <fs_nfm>-itm_number ) TO ct_return.
-        RETURN.
-      ENDIF.
-
-      MOVE-CORRESPONDING <fs_db> TO ls_old.
-      ls_old-updkz = 'U'.
-      ls_new       = ls_old.
-      ls_new-ndt   = <fs_nfm>-ratedetdat.
-      ls_new-kta   = <fs_nfm>-actratedat.
-      ls_new-nku   = <fs_nfm>-ratedoccur.
-      ls_new-nkn   = <fs_nfm>-rate.
-      ls_new-nno   = <fs_nfm>-rate.
-      ls_new-updkz = 'U'.
-      APPEND ls_old TO lt_y.
-      APPEND ls_new TO lt_x.
-    ENDLOOP.
-
-    IF lt_x IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    TRY.
-        CALL FUNCTION '/NFM/ORDERPOS_SAVE'
-          EXPORTING
-            i_vbtyp     = 'B'
-            i_kappl     = 'M'
-            i_vorgang   = 'V'
-            i_bstyp     = 'F'
-          TABLES
-            t_xorderpos = lt_x
-            t_yorderpos = lt_y.
-      CATCH cx_root INTO DATA(lx_save).
-        APPEND append_exc( lx_save ) TO ct_return.
-    ENDTRY.
   ENDMETHOD.
 
   METHOD call_bapi_change_pos.
@@ -364,15 +286,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
                         message_v2 = lv_po_item ) TO rt_return.
         RETURN.
       ENDIF.
-
-      persist_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_ch
-                            CHANGING  ct_return = rt_return ).
-
-      READ TABLE rt_return TRANSPORTING NO FIELDS
-          WITH KEY type = 'E'.
-      IF sy-subrc IS INITIAL.
-        RETURN.
-      ENDIF.
     ENDIF.
 
     TRY.
@@ -453,9 +366,23 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         AND PurchasingOrganization = @lv_ekorg
       INTO @lv_boesl.
 
+    SELECT nes, kappl
+      FROM /nfm/tvgw
+      WHERE matnr = @lv_matnr18
+        AND werks = @lv_werks
+      INTO TABLE @lt_tvgw.
+
+    IF lt_tvgw IS INITIAL.
+      SELECT nes, kappl
+        FROM /nfm/tvgw
+        WHERE matnr = @lv_matnr
+          AND werks = @lv_werks
+        INTO TABLE @lt_tvgw.
+    ENDIF.
+
     LOOP AT ct_nfm ASSIGNING FIELD-SYMBOL(<fs_nfm>) USING KEY primary_key
          WHERE itm_number = lv_item.
-      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_price, lv_quotdate, lv_prefix, lv_vky, lv_msg, lv_nes, lv_kappl, lt_tvgw.
+      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_price, lv_quotdate, lv_prefix, lv_vky, lv_msg, lv_nes, lv_kappl.
 
       lv_nfmkey = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
 
@@ -477,6 +404,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
       IF lv_nfs = '02'.
         <fs_nfm>-ratedetdat = iv_invoice_date.
+        <fs_nfm>-netrate    = <fs_nfm>-rate.
         <fs_nfm>-updtype    = 'U'.
         APPEND <fs_nfm> TO ct_nfm_ch.
         CONTINUE.
@@ -484,20 +412,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
       lv_prefix = COND #( WHEN lv_nfs = '04' OR lv_nfs = '08' THEN 'M1' ELSE 'T1' ).
       lv_quotyp = |{ lv_prefix }{ condense( val = CONV string( lv_boesl ) ) }|.
-
-      SELECT nes, kappl
-        FROM /nfm/tvgw
-        WHERE matnr = @lv_matnr18
-          AND werks = @lv_werks
-        INTO TABLE @lt_tvgw.
-
-      IF lt_tvgw IS INITIAL.
-        SELECT nes, kappl
-          FROM /nfm/tvgw
-          WHERE matnr = @lv_matnr
-            AND werks = @lv_werks
-          INTO TABLE @lt_tvgw.
-      ENDIF.
 
       LOOP AT lt_tvgw ASSIGNING FIELD-SYMBOL(<fs_tvgw>).
         IF <fs_tvgw>-nes = lv_nfmkey OR ( strlen( <fs_tvgw>-nes ) >= 3 AND <fs_tvgw>-nes(3) = lv_nfmkey ).
@@ -558,6 +472,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       <fs_nfm>-actratedat = lv_quotdate.
       <fs_nfm>-rate       = lv_price.
       <fs_nfm>-ratedoccur = lv_price.
+      <fs_nfm>-netrate    = lv_price.
       <fs_nfm>-updtype    = 'U'.
       APPEND <fs_nfm> TO ct_nfm_ch.
     ENDLOOP.
