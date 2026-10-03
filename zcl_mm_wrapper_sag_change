@@ -5,9 +5,10 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
 
   PUBLIC SECTION.
     TYPES: BEGIN OF ty_item,
-             item     TYPE ebelp,
-             price    TYPE bapicurext,
-             currency TYPE waers,
+             item         TYPE ebelp,
+             price        TYPE bapicurext,
+             currency     TYPE waers,
+             invoice_date TYPE dats,
            END OF ty_item,
            tt_item TYPE SORTED TABLE OF ty_item WITH UNIQUE KEY item,
            BEGIN OF ty_param,
@@ -31,9 +32,34 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
                 iv_item        TYPE ebelp
                 iv_serial_id   TYPE bapimeoutcondition-serial_id
       RETURNING VALUE(rs_cond) TYPE bapimeoutcondition.
+
+    CLASS-METHODS last_day_of_month
+      IMPORTING iv_date        TYPE dats
+      RETURNING VALUE(rv_date) TYPE dats.
+
+    CLASS-METHODS append_exc
+      IMPORTING io_exc           TYPE REF TO cx_root
+      RETURNING VALUE(rs_return) TYPE bapiret2.
 ENDCLASS.
 
 CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
+  METHOD append_exc.
+    DATA(lv_text) = io_exc->get_text( ).
+    rs_return-type       = 'E'.
+    rs_return-id         = 'ZCL_MSG_MM_003'.
+    rs_return-number     = '016'.
+    rs_return-message    = lv_text.
+    rs_return-message_v1 = lv_text.
+  ENDMETHOD.
+
+  METHOD last_day_of_month.
+    DATA(lv_first) = iv_date.
+    lv_first+6(2) = '01'.
+    lv_first = lv_first + 32.
+    lv_first+6(2) = '01'.
+    rv_date = lv_first - 1.
+  ENDMETHOD.
+
   METHOD call_bapi_change.
     DATA: lt_return_get TYPE tt_return,
           lt_val        TYPE STANDARD TABLE OF bapimeoutvalidity,
@@ -47,25 +73,29 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           ls_current    TYPE bapimeoutvalidity,
           ls_new_val    TYPE bapimeoutvalidity,
           ls_cond       TYPE bapimeoutcondition,
-          lv_today      TYPE d,
-          lv_yesterday  TYPE d,
+          lv_invoice    TYPE dats,
+          lv_prev       TYPE dats,
+          lv_valid_to   TYPE dats,
           lv_item       TYPE bapimeoutvalidity-item_no.
 
-    lv_today     = sy-datum.
-    lv_yesterday = lv_today - 1.
+    TRY.
+        CALL FUNCTION 'BAPI_SAG_GETDETAIL'
+          EXPORTING
+            purchasingdocument = is_param-iv_purchasingdocument
+          TABLES
+            return             = lt_return_get
+            item_cond_validity = lt_val
+            item_condition     = lt_cond.
+      CATCH cx_root INTO DATA(lx_gd).
+        APPEND append_exc( lx_gd ) TO rt_return.
+        RETURN.
+    ENDTRY.
 
-    CALL FUNCTION 'BAPI_SAG_GETDETAIL'
-      EXPORTING
-        purchasingdocument = is_param-iv_purchasingdocument
-      TABLES
-        return             = lt_return_get
-        item_cond_validity = lt_val
-        item_condition     = lt_cond.
-
-    READ TABLE lt_return_get TRANSPORTING NO FIELDS
-        WITH KEY type = 'E'.
+    LOOP AT lt_return_get ASSIGNING FIELD-SYMBOL(<fs_get>) WHERE type = 'E' OR type = 'A'.
+      APPEND <fs_get> TO rt_return.
+    ENDLOOP.
+    READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
     IF sy-subrc IS INITIAL.
-      rt_return = lt_return_get.
       RETURN.
     ENDIF.
 
@@ -74,12 +104,35 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
 
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
       CLEAR: ls_current, ls_new_val, ls_cond.
-      lv_item = |{ <fs_item>-item ALPHA = IN }|.
+      lv_item    = |{ <fs_item>-item ALPHA = IN }|.
+      lv_invoice = <fs_item>-invoice_date.
+
+      IF lv_invoice IS INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '030'
+                        message_v1 = is_param-iv_purchasingdocument
+                        message_v2 = <fs_item>-item ) TO rt_return.
+        RETURN.
+      ENDIF.
+
+      lv_prev     = lv_invoice - 1.
+      lv_valid_to = last_day_of_month( lv_invoice ).
 
       LOOP AT lt_val_k ASSIGNING FIELD-SYMBOL(<fs_val>) USING KEY primary_key
            WHERE item_no = lv_item.
-        ls_current = <fs_val>.
+        IF <fs_val>-valid_from <= lv_invoice AND <fs_val>-valid_to >= lv_invoice.
+          ls_current = <fs_val>.
+          EXIT.
+        ENDIF.
       ENDLOOP.
+
+      IF ls_current IS INITIAL.
+        LOOP AT lt_val_k ASSIGNING <fs_val> USING KEY primary_key
+             WHERE item_no = lv_item.
+          ls_current = <fs_val>.
+        ENDLOOP.
+      ENDIF.
 
       IF ls_current IS INITIAL.
         APPEND VALUE #( type       = 'E'
@@ -103,8 +156,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         RETURN.
       ENDIF.
 
-      IF ls_current-valid_from < lv_today.
-        ls_current-valid_to = lv_yesterday.
+      IF ls_current-valid_from < lv_invoice.
+        ls_current-valid_to = lv_prev.
         APPEND ls_current TO lt_val_ch.
         APPEND VALUE #( item_no   = ls_current-item_no
                         serial_id = ls_current-serial_id
@@ -114,8 +167,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
 
       ls_new_val = ls_current.
       CLEAR ls_new_val-serial_id.
-      ls_new_val-valid_from = lv_today.
-      ls_new_val-valid_to   = '99991231'.
+      ls_new_val-valid_from = lv_invoice.
+      ls_new_val-valid_to   = lv_valid_to.
       APPEND ls_new_val TO lt_val_ch.
       APPEND VALUE #( item_no    = ls_new_val-item_no
                       item_nox   = abap_true
@@ -135,23 +188,28 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                       currency   = abap_true ) TO lt_condx_ch.
     ENDLOOP.
 
-    CALL FUNCTION 'BAPI_SAG_CHANGE'
-      EXPORTING
-        purchasingdocument  = is_param-iv_purchasingdocument
-      TABLES
-        return              = rt_return
-        item_cond_validity  = lt_val_ch
-        item_cond_validityx = lt_valx_ch
-        item_condition      = lt_cond_ch
-        item_conditionx     = lt_condx_ch.
+    TRY.
+        CALL FUNCTION 'BAPI_SAG_CHANGE'
+          EXPORTING
+            purchasingdocument  = is_param-iv_purchasingdocument
+          TABLES
+            return              = rt_return
+            item_cond_validity  = lt_val_ch
+            item_cond_validityx = lt_valx_ch
+            item_condition      = lt_cond_ch
+            item_conditionx     = lt_condx_ch.
+      CATCH cx_root INTO DATA(lx_ch).
+        APPEND append_exc( lx_ch ) TO rt_return.
+        RETURN.
+    ENDTRY.
 
-    READ TABLE rt_return TRANSPORTING NO FIELDS
-        WITH KEY type = 'S'.
-    IF sy-subrc IS INITIAL.
-      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
-        EXPORTING
-          wait = abap_true.
-    ENDIF.
+    LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
+      RETURN.
+    ENDLOOP.
+
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+      EXPORTING
+        wait = abap_true.
   ENDMETHOD.
 
   METHOD get_gross_condition.
@@ -168,7 +226,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     ENDLOOP.
 
     LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
-         WHERE item_no      = lv_item
+         WHERE item_no   = lv_item
            AND serial_id = iv_serial_id
            AND cond_type = 'PB00'.
       IF <fs_cond>-cond_value IS NOT INITIAL.
