@@ -95,6 +95,14 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     ENDLOOP.
 
     TRY.
+        CALL FUNCTION 'DEQUEUE_EMEKKOE'
+          EXPORTING
+            ebeln     = is_param-iv_purchasingdocument
+            _synchron = abap_true.
+      CATCH cx_root.
+    ENDTRY.
+
+    TRY.
         CALL FUNCTION 'BAPI_SAG_CHANGE'
           EXPORTING
             purchasingdocument  = is_param-iv_purchasingdocument
