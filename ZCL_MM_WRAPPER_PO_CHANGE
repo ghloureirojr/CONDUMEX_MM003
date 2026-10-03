@@ -84,11 +84,13 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
 
     CLASS-METHODS persist_nfm_orderpos
       IMPORTING it_nfm_ch TYPE tt_nfm_std
+                iv_bstyp  TYPE bstyp DEFAULT 'F'
       CHANGING  ct_return TYPE tt_return.
 
     CLASS-METHODS ensure_nfm_currency
       IMPORTING iv_purchaseorder TYPE vdm_purchaseorder
                 it_poitem        TYPE ty_param-t_poitem
+                iv_bstyp         TYPE bstyp DEFAULT 'F'
       CHANGING  ct_return        TYPE tt_return.
 
     CLASS-METHODS fill_nfm_currency
@@ -97,6 +99,7 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
     CLASS-METHODS save_nfm_orderpos
       IMPORTING it_x             TYPE STANDARD TABLE
                 it_y             TYPE STANDARD TABLE
+                iv_bstyp         TYPE bstyp DEFAULT 'F'
       RETURNING VALUE(rs_return) TYPE bapiret2.
 
     CLASS-METHODS append_exc
@@ -159,7 +162,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
             i_vbtyp     = 'B'
             i_kappl     = 'M'
             i_vorgang   = 'V'
-            i_bstyp     = 'F'
+            i_bstyp     = iv_bstyp
           TABLES
             t_xorderpos = lt_x
             t_yorderpos = lt_y.
@@ -261,7 +264,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    ls_save = save_nfm_orderpos( it_x = lt_x it_y = lt_y ).
+    ls_save = save_nfm_orderpos( it_x = lt_x it_y = lt_y iv_bstyp = iv_bstyp ).
     IF ls_save-type = 'E'.
       APPEND ls_save TO ct_return.
       RETURN.
@@ -415,7 +418,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       APPEND ls_new TO lt_x.
     ENDLOOP.
 
-    ls_save = save_nfm_orderpos( it_x = lt_x it_y = lt_y ).
+    ls_save = save_nfm_orderpos( it_x = lt_x it_y = lt_y iv_bstyp = iv_bstyp ).
     IF ls_save-type = 'E'.
       APPEND ls_save TO ct_return.
     ENDIF.
@@ -432,6 +435,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           ls_cond      TYPE bapimepocond,
           lv_need_pr   TYPE abap_bool,
           lv_has_fecha TYPE abap_bool,
+          lv_got_sched TYPE abap_bool,
+          lv_bstyp     TYPE bstyp,
           lt_sched     TYPE STANDARD TABLE OF bapimeposchedule,
           lt_sched_k   TYPE tt_sched,
           lt_sched_ch  TYPE STANDARD TABLE OF bapimeposchedule,
@@ -442,12 +447,23 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lt_nfm_k     TYPE tt_nfm,
           lt_nfm_ch    TYPE tt_nfm_std,
           lt_nfm_ret   TYPE tt_return,
+          lt_db_nfm    TYPE tt_torder,
           ls_header    TYPE bapimepoheader,
           ls_headerx   TYPE bapimepoheaderx,
           lv_po_item   TYPE bapimeposchedule-po_item,
           lv_item_bapi TYPE bapimepoitem-po_item.
 
     lt_itemx = is_param-t_poitemx.
+    lv_got_sched = abap_true.
+
+    SELECT SINGLE PurchasingDocumentCategory
+      FROM zi_mm_wrapper_ekpo
+      WHERE PurchaseOrder = @is_param-iv_purchaseorder
+      INTO @lv_bstyp.
+
+    IF lv_bstyp IS INITIAL.
+      lv_bstyp = 'F'.
+    ENDIF.
 
     LOOP AT is_param-t_poitem ASSIGNING FIELD-SYMBOL(<fs_item>).
       READ TABLE lt_itemx ASSIGNING FIELD-SYMBOL(<fs_itemx>)
@@ -480,6 +496,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     IF lv_has_fecha = abap_true.
       ensure_nfm_currency( EXPORTING iv_purchaseorder = is_param-iv_purchaseorder
                                      it_poitem        = is_param-t_poitem
+                                     iv_bstyp         = lv_bstyp
                            CHANGING  ct_return        = rt_return ).
       READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
       IF sy-subrc IS INITIAL.
@@ -497,15 +514,29 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
               pocond        = lt_cond
               poschedule    = lt_sched.
         CATCH cx_root INTO DATA(lx_gd1).
-          APPEND append_exc( lx_gd1 ) TO rt_return.
-          RETURN.
+          IF lv_need_pr = abap_true.
+            APPEND append_exc( lx_gd1 ) TO rt_return.
+            RETURN.
+          ENDIF.
+          CLEAR: rt_return, lt_sched.
+          lv_got_sched = abap_false.
       ENDTRY.
 
-      LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
-        RETURN.
-      ENDLOOP.
+      IF lv_got_sched = abap_true.
+        LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
+          IF lv_need_pr = abap_true.
+            RETURN.
+          ENDIF.
+          "Contrato L: GETDETAIL1 puede fallar; NFM sigue por TORDERPOS
+          CLEAR: rt_return, lt_sched.
+          lv_got_sched = abap_false.
+          EXIT.
+        ENDLOOP.
+      ENDIF.
 
-      CLEAR rt_return.
+      IF lv_got_sched = abap_true.
+        CLEAR rt_return.
+      ENDIF.
     ENDIF.
 
     IF lv_has_fecha = abap_true.
@@ -517,20 +548,50 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
               return        = lt_nfm_ret
               nfmetallitms  = lt_nfm.
         CATCH cx_root INTO DATA(lx_nfm).
-          APPEND VALUE #( type       = 'E'
-                          id         = 'ZCL_MSG_MM_003'
-                          number     = '035'
-                          message    = lx_nfm->get_text( )
-                          message_v1 = is_param-iv_purchaseorder ) TO rt_return.
+          IF lv_bstyp <> 'L'.
+            APPEND VALUE #( type       = 'E'
+                            id         = 'ZCL_MSG_MM_003'
+                            number     = '035'
+                            message    = lx_nfm->get_text( )
+                            message_v1 = is_param-iv_purchaseorder ) TO rt_return.
+          ENDIF.
       ENDTRY.
 
-      LOOP AT lt_nfm_ret ASSIGNING FIELD-SYMBOL(<fs_nfm_ret>) WHERE type = 'E' OR type = 'A'.
-        APPEND <fs_nfm_ret> TO rt_return.
-      ENDLOOP.
+      IF lv_bstyp <> 'L'.
+        LOOP AT lt_nfm_ret ASSIGNING FIELD-SYMBOL(<fs_nfm_ret>) WHERE type = 'E' OR type = 'A'.
+          APPEND <fs_nfm_ret> TO rt_return.
+        ENDLOOP.
 
-      READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
-      IF sy-subrc IS INITIAL.
-        RETURN.
+        READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
+        IF sy-subrc IS INITIAL.
+          RETURN.
+        ENDIF.
+      ELSE.
+        CLEAR rt_return.
+      ENDIF.
+
+      IF lt_nfm IS INITIAL.
+        SELECT *
+          FROM /nfm/torderpos
+          FOR ALL ENTRIES IN @is_param-t_poitem
+          WHERE belnr = @is_param-iv_purchaseorder
+            AND posnr = @is_param-t_poitem-po_item
+          INTO TABLE @lt_db_nfm.
+
+        LOOP AT lt_db_nfm ASSIGNING FIELD-SYMBOL(<fs_dbn>).
+          APPEND VALUE #( doc_number  = <fs_dbn>-belnr
+                          itm_number  = <fs_dbn>-posnr
+                          nfmkey      = <fs_dbn>-nes
+                          actratedat  = <fs_dbn>-kta
+                          ratedetdat  = <fs_dbn>-ndt
+                          rate        = <fs_dbn>-nkn
+                          ratedoccur  = <fs_dbn>-nku
+                          ratedetkey  = <fs_dbn>-nfs
+                          exchangekey = <fs_dbn>-bsl
+                          ratecurky   = <fs_dbn>-nkw
+                          bvalcurkyd  = <fs_dbn>-bcu
+                          updtype     = 'U' ) TO lt_nfm.
+        ENDLOOP.
       ENDIF.
     ENDIF.
 
@@ -601,7 +662,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lv_found = abap_true.
         ENDLOOP.
 
-        IF lv_found = abap_false.
+        IF lv_found = abap_false AND lv_got_sched = abap_true.
           APPEND VALUE #( type       = 'E'
                           id         = 'ZCL_MSG_MM_003'
                           number     = '029'
@@ -637,6 +698,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
     IF lt_nfm_ch IS NOT INITIAL.
       persist_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_ch
+                                      iv_bstyp  = lv_bstyp
                             CHANGING  ct_return = rt_return ).
 
       READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
@@ -647,6 +709,14 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
         EXPORTING
           wait = abap_true.
+
+      IF lv_bstyp = 'L'.
+        APPEND VALUE #( type       = 'S'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '017'
+                        message_v1 = is_param-iv_purchaseorder ) TO rt_return.
+        RETURN.
+      ENDIF.
 
       LOOP AT lt_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm_c>).
         lv_item_bapi = <fs_nfm_c>-itm_number.
