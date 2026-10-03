@@ -95,14 +95,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     ENDLOOP.
 
     TRY.
-        CALL FUNCTION 'DEQUEUE_EMEKKOE'
-          EXPORTING
-            ebeln     = is_param-iv_purchasingdocument
-            _synchron = abap_true.
-      CATCH cx_root.
-    ENDTRY.
-
-    TRY.
         CALL FUNCTION 'BAPI_SAG_CHANGE'
           EXPORTING
             purchasingdocument  = is_param-iv_purchasingdocument
@@ -114,7 +106,17 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
             item_conditionx     = lt_condx_ch.
       CATCH cx_root INTO DATA(lx_ch).
         APPEND append_exc( lx_ch ) TO rt_return.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
         RETURN.
     ENDTRY.
+
+    LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+      RETURN.
+    ENDLOOP.
+
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+      EXPORTING
+        wait = abap_true.
   ENDMETHOD.
 ENDCLASS.
