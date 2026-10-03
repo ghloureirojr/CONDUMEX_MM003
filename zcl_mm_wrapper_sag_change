@@ -101,6 +101,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       RETURN.
     ENDIF.
 
+    CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+
     lt_val_k  = lt_val.
     lt_cond_k = lt_cond.
 
