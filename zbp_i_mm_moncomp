@@ -599,18 +599,25 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             WITH TABLE KEY iv_purchasingdocument = <fs_moncomp>-oc.
 
         IF sy-subrc IS NOT INITIAL.
-          INSERT VALUE #( iv_purchasingdocument = <fs_moncomp>-oc )
+          INSERT VALUE #( iv_purchasingdocument = <fs_moncomp>-oc
+                          iv_nfm                = xsdbool( <fs_moncomp>-IsNfm = 'X' ) )
                  INTO TABLE lt_sag ASSIGNING <fs_sag>.
           APPEND VALUE #( oc = <fs_moncomp>-oc ) TO lt_sag_id.
         ENDIF.
 
-        INSERT VALUE #( item         = <fs_moncomp>-Posicion
-                        price        = <fs_moncomp>-PrecioASN
-                        currency     = <fs_moncomp>-MonedaASN
-                        unit         = <fs_moncomp>-CantidadPedidaUnidad
-                        price_unit   = <fs_moncomp>-Cantidad
-                        invoice_date = <fs_moncomp>-FechaFactura )
-               INTO TABLE <fs_sag>-t_item.
+        IF <fs_moncomp>-IsNfm = 'X'.
+          INSERT VALUE #( item         = <fs_moncomp>-Posicion
+                          invoice_date = <fs_moncomp>-FechaFactura )
+                 INTO TABLE <fs_sag>-t_item.
+        ELSE.
+          INSERT VALUE #( item         = <fs_moncomp>-Posicion
+                          price        = <fs_moncomp>-PrecioASN
+                          currency     = <fs_moncomp>-MonedaASN
+                          unit         = <fs_moncomp>-CantidadPedidaUnidad
+                          price_unit   = <fs_moncomp>-Cantidad
+                          invoice_date = <fs_moncomp>-FechaFactura )
+                 INTO TABLE <fs_sag>-t_item.
+        ENDIF.
 
         READ TABLE lt_sag_id ASSIGNING <fs_sag_id>
             WITH TABLE KEY id COMPONENTS oc = <fs_moncomp>-oc.
