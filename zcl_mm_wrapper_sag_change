@@ -15,6 +15,7 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
            tt_item TYPE SORTED TABLE OF ty_item WITH UNIQUE KEY item,
            BEGIN OF ty_param,
              iv_purchasingdocument TYPE ebeln,
+             iv_nfm                TYPE abap_bool,
              t_item                TYPE tt_item,
            END OF ty_param,
            tt_return TYPE STANDARD TABLE OF bapiret2 WITH DEFAULT KEY.
@@ -24,6 +25,9 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
       RETURNING VALUE(rt_return) TYPE tt_return.
   PROTECTED SECTION.
   PRIVATE SECTION.
+    TYPES: tt_sched TYPE SORTED TABLE OF bapimeoutschedule
+                    WITH NON-UNIQUE KEY item_no.
+
     CLASS-METHODS last_day_of_month
       IMPORTING iv_date        TYPE dats
       RETURNING VALUE(rv_date) TYPE dats.
@@ -31,6 +35,10 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
     CLASS-METHODS append_exc
       IMPORTING io_exc           TYPE REF TO cx_root
       RETURNING VALUE(rs_return) TYPE bapiret2.
+
+    CLASS-METHODS change_nfm_schedule
+      IMPORTING is_param         TYPE ty_param
+      RETURNING VALUE(rt_return) TYPE tt_return.
 ENDCLASS.
 
 CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
@@ -60,6 +68,12 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           lv_valid_to  TYPE dats,
           lv_item      TYPE bapimeoutvalidity-item_no,
           lv_price_unt TYPE epein.
+
+    "NFM: no tocar PB00/ZNF6; el estandar recalcula /NFM/TORDERPOS
+    IF is_param-iv_nfm = abap_true.
+      rt_return = change_nfm_schedule( is_param ).
+      RETURN.
+    ENDIF.
 
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
       lv_item    = |{ <fs_item>-item ALPHA = IN }|.
@@ -122,6 +136,103 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
             item_cond_validityx = lt_valx_ch
             item_condition      = lt_cond_ch
             item_conditionx     = lt_condx_ch.
+      CATCH cx_root INTO DATA(lx_ch).
+        APPEND append_exc( lx_ch ) TO rt_return.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+        RETURN.
+    ENDTRY.
+
+    LOOP AT rt_return ASSIGNING FIELD-SYMBOL(<fs_ret>).
+      IF <fs_ret>-type = 'E' OR <fs_ret>-type = 'A'.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+      EXPORTING
+        wait = abap_true.
+  ENDMETHOD.
+
+  METHOD change_nfm_schedule.
+    DATA: lt_sched    TYPE STANDARD TABLE OF bapimeoutschedule,
+          lt_sched_k  TYPE tt_sched,
+          lt_sched_ch TYPE STANDARD TABLE OF bapimeoutschedule,
+          lt_schedx   TYPE STANDARD TABLE OF bapimeoutschedulex,
+          lv_item     TYPE bapimeoutschedule-item_no,
+          lv_found    TYPE abap_bool,
+          lv_deliv    TYPE bapimeoutschedule-delivery_date.
+
+    LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_chk>).
+      IF <fs_chk>-invoice_date IS INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '030'
+                        message_v1 = is_param-iv_purchasingdocument
+                        message_v2 = <fs_chk>-item ) TO rt_return.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    TRY.
+        CALL FUNCTION 'BAPI_SAG_GETDETAIL'
+          EXPORTING
+            purchasingdocument = is_param-iv_purchasingdocument
+            schedule_data      = abap_true
+          TABLES
+            return             = rt_return
+            schedule           = lt_sched.
+      CATCH cx_root INTO DATA(lx_gd).
+        APPEND append_exc( lx_gd ) TO rt_return.
+        RETURN.
+    ENDTRY.
+
+    LOOP AT rt_return ASSIGNING FIELD-SYMBOL(<fs_gd>).
+      IF <fs_gd>-type = 'E' OR <fs_gd>-type = 'A'.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    CLEAR rt_return.
+    lt_sched_k = lt_sched.
+
+    LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
+      CLEAR lv_found.
+      lv_item  = |{ <fs_item>-item ALPHA = IN }|.
+      lv_deliv = |{ <fs_item>-invoice_date DATE = USER }|.
+
+      LOOP AT lt_sched_k ASSIGNING FIELD-SYMBOL(<fs_sched>) USING KEY primary_key
+           WHERE item_no = lv_item.
+        <fs_sched>-delivery_date = lv_deliv.
+        <fs_sched>-stat_date     = <fs_item>-invoice_date.
+        APPEND <fs_sched> TO lt_sched_ch.
+        APPEND VALUE #( item_no       = <fs_sched>-item_no
+                        sched_line    = <fs_sched>-sched_line
+                        item_nox      = abap_true
+                        sched_linex   = abap_true
+                        delivery_date = abap_true
+                        stat_date     = abap_true ) TO lt_schedx.
+        lv_found = abap_true.
+      ENDLOOP.
+
+      IF lv_found = abap_false.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '029'
+                        message_v1 = is_param-iv_purchasingdocument
+                        message_v2 = <fs_item>-item ) TO rt_return.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    TRY.
+        CALL FUNCTION 'BAPI_SAG_CHANGE'
+          EXPORTING
+            purchasingdocument = is_param-iv_purchasingdocument
+          TABLES
+            return             = rt_return
+            schedule           = lt_sched_ch
+            schedulex          = lt_schedx.
       CATCH cx_root INTO DATA(lx_ch).
         APPEND append_exc( lx_ch ) TO rt_return.
         CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
