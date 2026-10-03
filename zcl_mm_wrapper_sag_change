@@ -82,8 +82,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         CALL FUNCTION 'BAPI_SAG_GETDETAIL'
           EXPORTING
             purchasingdocument = is_param-iv_purchasingdocument
-            item_data          = abap_true
-            conditions         = abap_true
           TABLES
             return             = lt_return_get
             item_cond_validity = lt_val
@@ -136,29 +134,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         ENDLOOP.
       ENDIF.
 
-      IF ls_current IS INITIAL.
-        APPEND VALUE #( type       = 'E'
-                        id         = 'ZCL_MSG_MM_003'
-                        number     = '027'
-                        message_v1 = is_param-iv_purchasingdocument
-                        message_v2 = <fs_item>-item ) TO rt_return.
-        RETURN.
-      ENDIF.
-
-      ls_cond = get_gross_condition( it_cond      = lt_cond_k
-                                     iv_item      = <fs_item>-item
-                                     iv_serial_id = ls_current-serial_id ).
-
-      IF ls_cond IS INITIAL.
-        APPEND VALUE #( type       = 'E'
-                        id         = 'ZCL_MSG_MM_003'
-                        number     = '026'
-                        message_v1 = is_param-iv_purchasingdocument
-                        message_v2 = <fs_item>-item ) TO rt_return.
-        RETURN.
-      ENDIF.
-
-      IF ls_current-valid_from < lv_invoice.
+      IF ls_current IS NOT INITIAL AND ls_current-valid_from < lv_invoice.
         ls_current-valid_to = lv_prev.
         APPEND ls_current TO lt_val_ch.
         APPEND VALUE #( item_no   = ls_current-item_no
@@ -167,8 +143,14 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         valid_to  = abap_true ) TO lt_valx_ch.
       ENDIF.
 
-      ls_new_val = ls_current.
-      CLEAR ls_new_val-serial_id.
+      IF ls_current IS NOT INITIAL.
+        ls_new_val = ls_current.
+        CLEAR ls_new_val-serial_id.
+      ELSE.
+        CLEAR ls_new_val.
+        ls_new_val-item_no = lv_item.
+      ENDIF.
+
       ls_new_val-valid_from = lv_invoice.
       ls_new_val-valid_to   = lv_valid_to.
       APPEND ls_new_val TO lt_val_ch.
@@ -176,6 +158,16 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                       item_nox   = abap_true
                       valid_from = abap_true
                       valid_to   = abap_true ) TO lt_valx_ch.
+
+      ls_cond = get_gross_condition( it_cond      = lt_cond_k
+                                     iv_item      = <fs_item>-item
+                                     iv_serial_id = ls_current-serial_id ).
+
+      IF ls_cond IS INITIAL.
+        CLEAR ls_cond.
+        ls_cond-item_no   = lv_item.
+        ls_cond-cond_type = 'PBXX'.
+      ENDIF.
 
       ls_cond-cond_value = <fs_item>-price.
       IF <fs_item>-currency IS NOT INITIAL.
@@ -230,6 +222,24 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
          WHERE item_no   = lv_item
            AND serial_id = iv_serial_id
+           AND cond_type = 'PB00'.
+      IF <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
+         WHERE item_no   = lv_item
+           AND cond_type = 'PBXX'.
+      IF <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
+         WHERE item_no   = lv_item
            AND cond_type = 'PB00'.
       IF <fs_cond>-cond_value IS NOT INITIAL.
         rs_cond = <fs_cond>.
