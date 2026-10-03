@@ -135,6 +135,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         CALL FUNCTION 'BAPI_SAG_GETDETAIL'
           EXPORTING
             purchasingdocument = is_param-iv_purchasingdocument
+            item_data          = abap_true
+            condition_data     = abap_true
           TABLES
             return             = lt_return_get
             item               = lt_item_gd
@@ -154,6 +156,13 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     IF sy-subrc IS INITIAL.
       RETURN.
     ENDIF.
+
+    LOOP AT lt_val ASSIGNING FIELD-SYMBOL(<fs_val_in>).
+      <fs_val_in>-item_no = |{ <fs_val_in>-item_no ALPHA = IN }|.
+    ENDLOOP.
+    LOOP AT lt_cond ASSIGNING FIELD-SYMBOL(<fs_cond_in>).
+      <fs_cond_in>-item_no = |{ <fs_cond_in>-item_no ALPHA = IN }|.
+    ENDLOOP.
 
     lt_val_k  = lt_val.
     lt_cond_k = lt_cond.
