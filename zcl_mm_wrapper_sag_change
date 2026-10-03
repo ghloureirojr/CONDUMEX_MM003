@@ -109,8 +109,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                       cond_p_unt  = abap_true
                       cond_unit   = abap_true
                       numerator   = abap_true
-                      denominator = abap_true
-                      change_id   = abap_true ) TO lt_condx_ch.
+                      denominator = abap_true ) TO lt_condx_ch.
     ENDLOOP.
 
     TRY.
