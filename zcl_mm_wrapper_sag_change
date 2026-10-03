@@ -88,6 +88,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
             item_condition     = lt_cond.
       CATCH cx_root INTO DATA(lx_gd).
         APPEND append_exc( lx_gd ) TO rt_return.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
         RETURN.
     ENDTRY.
 
@@ -96,6 +97,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     ENDLOOP.
     READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
     IF sy-subrc IS INITIAL.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
       RETURN.
     ENDIF.
 
@@ -194,10 +196,12 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
             item_conditionx     = lt_condx_ch.
       CATCH cx_root INTO DATA(lx_ch).
         APPEND append_exc( lx_ch ) TO rt_return.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
         RETURN.
     ENDTRY.
 
     LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
       RETURN.
     ENDLOOP.
 
