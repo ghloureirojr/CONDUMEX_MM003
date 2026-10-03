@@ -635,6 +635,34 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
     ENDIF.
 
+    IF lt_nfm_ch IS NOT INITIAL.
+      persist_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_ch
+                            CHANGING  ct_return = rt_return ).
+
+      READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
+      IF sy-subrc IS INITIAL.
+        RETURN.
+      ENDIF.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+
+      LOOP AT lt_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm_c>).
+        lv_item_bapi = <fs_nfm_c>-itm_number.
+        READ TABLE lt_poitem ASSIGNING FIELD-SYMBOL(<fs_poi>)
+            WITH KEY po_item = lv_item_bapi.
+        IF sy-subrc IS INITIAL.
+          <fs_poi>-calctype = 'C'.
+        ENDIF.
+        READ TABLE lt_poitemx ASSIGNING FIELD-SYMBOL(<fs_poix>)
+            WITH KEY po_item = lv_item_bapi.
+        IF sy-subrc IS INITIAL.
+          <fs_poix>-calctype = abap_true.
+        ENDIF.
+      ENDLOOP.
+    ENDIF.
+
     TRY.
         CALL FUNCTION 'BAPI_PO_CHANGE'
           EXPORTING
@@ -661,20 +689,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
     CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
       EXPORTING
         wait = abap_true.
-
-    IF lt_nfm_ch IS NOT INITIAL.
-      persist_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_ch
-                            CHANGING  ct_return = rt_return ).
-
-      READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
-      IF sy-subrc IS INITIAL.
-        RETURN.
-      ENDIF.
-
-      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
-        EXPORTING
-          wait = abap_true.
-    ENDIF.
   ENDMETHOD.
 
   METHOD apply_nfm_rates.
