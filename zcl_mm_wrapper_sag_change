@@ -8,6 +8,7 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
              item         TYPE ebelp,
              price        TYPE bapicurext,
              currency     TYPE waers,
+             unit         TYPE meins,
              invoice_date TYPE dats,
            END OF ty_item,
            tt_item TYPE SORTED TABLE OF ty_item WITH UNIQUE KEY item,
@@ -85,13 +86,17 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       APPEND VALUE #( item_no    = lv_item
                       cond_type  = 'PBXX'
                       cond_value = <fs_item>-price
-                      currency   = <fs_item>-currency ) TO lt_cond_ch.
+                      currency   = <fs_item>-currency
+                      cond_p_unt = 1
+                      cond_unit  = <fs_item>-unit ) TO lt_cond_ch.
 
       APPEND VALUE #( item_no    = lv_item
                       item_nox   = abap_true
                       cond_type  = abap_true
                       cond_value = abap_true
-                      currency   = abap_true ) TO lt_condx_ch.
+                      currency   = abap_true
+                      cond_p_unt = abap_true
+                      cond_unit  = abap_true ) TO lt_condx_ch.
     ENDLOOP.
 
     TRY.
