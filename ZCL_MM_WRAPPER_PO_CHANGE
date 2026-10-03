@@ -1,7 +1,7 @@
 CLASS zcl_mm_wrapper_po_change DEFINITION
   PUBLIC
   FINAL
-  CREATE PUBLIC.
+  CREATE PUBLIC .
 
   PUBLIC SECTION.
     TYPES: BEGIN OF ty_poitem,
@@ -59,47 +59,393 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
   PROTECTED SECTION.
   PRIVATE SECTION.
     TYPES: tt_poitemx TYPE HASHED TABLE OF ty_poitemx WITH UNIQUE KEY po_item,
-           tt_pocond  TYPE STANDARD TABLE OF bapimepocond WITH DEFAULT KEY,
            tt_cond    TYPE SORTED TABLE OF bapimepocond
                       WITH NON-UNIQUE KEY itm_number cond_type,
            tt_sched   TYPE SORTED TABLE OF bapimeposchedule
-                      WITH NON-UNIQUE KEY po_item sched_line.
+                      WITH NON-UNIQUE KEY po_item sched_line,
+           tt_nfm     TYPE SORTED TABLE OF /nfm/bapidocitm
+                      WITH NON-UNIQUE KEY itm_number nfmkey,
+           tt_nfm_std TYPE STANDARD TABLE OF /nfm/bapidocitm WITH DEFAULT KEY,
+           tt_torder  TYPE SORTED TABLE OF /nfm/torderpos
+                      WITH NON-UNIQUE KEY belnr posnr nes.
 
     CLASS-METHODS get_gross_condition
       IMPORTING it_cond        TYPE tt_cond
                 iv_po_item     TYPE ebelp
       RETURNING VALUE(rs_cond) TYPE bapimepocond.
 
-    CLASS-METHODS get_max_item
+    CLASS-METHODS apply_nfm_rates
       IMPORTING iv_purchaseorder TYPE vdm_purchaseorder
-      RETURNING VALUE(rv_item)   TYPE ebelp.
+                iv_po_item       TYPE ebelp
+                iv_invoice_date  TYPE dats
+      CHANGING  ct_nfm           TYPE tt_nfm
+                ct_nfm_ch        TYPE tt_nfm_std
+                ct_return        TYPE tt_return.
+
+    CLASS-METHODS persist_nfm_orderpos
+      IMPORTING it_nfm_ch TYPE tt_nfm_std
+      CHANGING  ct_return TYPE tt_return.
+
+    CLASS-METHODS ensure_nfm_currency
+      IMPORTING iv_purchaseorder TYPE vdm_purchaseorder
+                it_poitem        TYPE ty_param-t_poitem
+      CHANGING  ct_return        TYPE tt_return.
+
+    CLASS-METHODS fill_nfm_currency
+      CHANGING cs_orderpos TYPE /nfm/orderpos_vb.
+
+    CLASS-METHODS save_nfm_orderpos
+      IMPORTING it_x             TYPE STANDARD TABLE
+                it_y             TYPE STANDARD TABLE
+      RETURNING VALUE(rs_return) TYPE bapiret2.
+
+    CLASS-METHODS append_exc
+      IMPORTING io_exc           TYPE REF TO cx_root
+      RETURNING VALUE(rs_return) TYPE bapiret2.
+
+    CLASS-METHODS append_nfm_currency_error
+      IMPORTING iv_belnr         TYPE /nfm/torderpos-belnr
+                iv_posnr         TYPE /nfm/torderpos-posnr
+      RETURNING VALUE(rs_return) TYPE bapiret2.
 ENDCLASS.
 
 CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
+  METHOD append_exc.
+    DATA(lv_text) = io_exc->get_text( ).
+    rs_return-type       = 'E'.
+    rs_return-id         = 'ZCL_MSG_MM_003'.
+    rs_return-number     = '016'.
+    rs_return-message    = lv_text.
+    rs_return-message_v1 = lv_text.
+  ENDMETHOD.
+
+  METHOD append_nfm_currency_error.
+    rs_return-type       = 'E'.
+    rs_return-id         = 'ZCL_MSG_MM_003'.
+    rs_return-number     = '037'.
+    rs_return-message_v1 = iv_belnr.
+    rs_return-message_v2 = iv_posnr.
+  ENDMETHOD.
+
+  METHOD fill_nfm_currency.
+    IF cs_orderpos-nkw IS INITIAL AND cs_orderpos-bcu IS NOT INITIAL.
+      cs_orderpos-nkw = cs_orderpos-bcu.
+    ENDIF.
+    IF cs_orderpos-bcu IS INITIAL AND cs_orderpos-nkw IS NOT INITIAL.
+      cs_orderpos-bcu = cs_orderpos-nkw.
+    ENDIF.
+    IF cs_orderpos-bkw IS INITIAL AND cs_orderpos-nkw IS NOT INITIAL.
+      cs_orderpos-bkw = cs_orderpos-nkw.
+    ENDIF.
+    IF cs_orderpos-nks IS INITIAL AND cs_orderpos-nkw IS NOT INITIAL AND cs_orderpos-nkw = cs_orderpos-bcu.
+      cs_orderpos-nks = 1.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD save_nfm_orderpos.
+    DATA: lt_x TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_y TYPE STANDARD TABLE OF /nfm/orderpos_vb.
+
+    lt_x = it_x.
+    lt_y = it_y.
+
+    IF lt_x IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    TRY.
+        CALL FUNCTION '/NFM/ORDERPOS_SAVE'
+          EXPORTING
+            i_vbtyp     = 'B'
+            i_kappl     = 'M'
+            i_vorgang   = 'V'
+            i_bstyp     = 'F'
+          TABLES
+            t_xorderpos = lt_x
+            t_yorderpos = lt_y.
+      CATCH cx_root INTO DATA(lx_save).
+        rs_return = append_exc( lx_save ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD ensure_nfm_currency.
+    TYPES: BEGIN OF ty_tdef,
+             nes TYPE /nfm/nes,
+             nfs TYPE /nfm/nfs,
+             bcu TYPE /nfm/bcu,
+           END OF ty_tdef,
+           BEGIN OF ty_pos,
+             posnr TYPE /nfm/torderpos-posnr,
+           END OF ty_pos.
+
+    DATA: lt_db   TYPE tt_torder,
+          lt_pos  TYPE STANDARD TABLE OF ty_pos,
+          ls_old  TYPE /nfm/orderpos_vb,
+          ls_new  TYPE /nfm/orderpos_vb,
+          lt_x    TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_y    TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_tdef TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
+          ls_tdef TYPE ty_tdef,
+          lv_vky  TYPE /nfm/vky,
+          ls_save TYPE bapiret2.
+
+    IF it_poitem IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    lv_vky = iv_purchaseorder.
+
+    LOOP AT it_poitem ASSIGNING FIELD-SYMBOL(<fs_pos>).
+      APPEND VALUE #( posnr = <fs_pos>-po_item ) TO lt_pos.
+    ENDLOOP.
+
+    SELECT *
+      FROM /nfm/torderpos
+      FOR ALL ENTRIES IN @lt_pos
+      WHERE belnr = @iv_purchaseorder
+        AND posnr = @lt_pos-posnr
+      INTO TABLE @lt_db.
+
+    IF lt_db IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    SELECT nes, nfs, bcu
+      FROM /nfm/tdefault
+      FOR ALL ENTRIES IN @lt_db
+      WHERE vtp = 'E'
+        AND vky = @lv_vky
+        AND nes = @lt_db-nes
+      INTO TABLE @lt_tdef.
+
+    LOOP AT lt_db ASSIGNING FIELD-SYMBOL(<fs_db>).
+      IF <fs_db>-nkw IS NOT INITIAL
+         AND <fs_db>-bcu IS NOT INITIAL
+         AND <fs_db>-nfs IS NOT INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      CLEAR: ls_old, ls_new, ls_tdef.
+      MOVE-CORRESPONDING <fs_db> TO ls_old.
+      fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
+      ls_old-updkz = 'U'.
+      ls_new       = ls_old.
+
+      READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = <fs_db>-nes.
+      IF sy-subrc IS INITIAL.
+        IF ls_new-nfs IS INITIAL.
+          ls_new-nfs = ls_tdef-nfs.
+        ENDIF.
+        IF ls_new-nkw IS INITIAL AND ls_tdef-bcu IS NOT INITIAL.
+          ls_new-nkw = ls_tdef-bcu.
+          ls_new-bcu = ls_tdef-bcu.
+          ls_new-bkw = ls_tdef-bcu.
+        ENDIF.
+      ENDIF.
+
+      fill_nfm_currency( CHANGING cs_orderpos = ls_new ).
+
+      IF ls_new-nkw IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = <fs_db>-belnr
+                                          iv_posnr = <fs_db>-posnr ) TO ct_return.
+        RETURN.
+      ENDIF.
+
+      fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
+      ls_new-updkz = 'U'.
+      APPEND ls_old TO lt_y.
+      APPEND ls_new TO lt_x.
+    ENDLOOP.
+
+    IF lt_x IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    ls_save = save_nfm_orderpos( it_x = lt_x it_y = lt_y ).
+    IF ls_save-type = 'E'.
+      APPEND ls_save TO ct_return.
+      RETURN.
+    ENDIF.
+
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+      EXPORTING
+        wait = abap_true.
+  ENDMETHOD.
+
+  METHOD persist_nfm_orderpos.
+    TYPES: BEGIN OF ty_tdef,
+             nes TYPE /nfm/nes,
+             nfs TYPE /nfm/nfs,
+             bcu TYPE /nfm/bcu,
+           END OF ty_tdef.
+
+    DATA: lt_db    TYPE tt_torder,
+          ls_old   TYPE /nfm/orderpos_vb,
+          ls_new   TYPE /nfm/orderpos_vb,
+          lt_x     TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_y     TYPE STANDARD TABLE OF /nfm/orderpos_vb,
+          lt_tdef  TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
+          ls_tdef  TYPE ty_tdef,
+          lv_waers TYPE /nfm/nkw,
+          lv_vky   TYPE /nfm/vky,
+          ls_save  TYPE bapiret2.
+
+    IF it_nfm_ch IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT it_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_chk>).
+      IF <fs_chk>-rate IS INITIAL AND <fs_chk>-ratedoccur IS INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '034'
+                        message_v1 = <fs_chk>-doc_number
+                        message_v2 = <fs_chk>-itm_number ) TO ct_return.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    lv_vky = it_nfm_ch[ 1 ]-doc_number.
+
+    SELECT *
+      FROM /nfm/torderpos
+      FOR ALL ENTRIES IN @it_nfm_ch
+      WHERE belnr = @it_nfm_ch-doc_number
+        AND posnr = @it_nfm_ch-itm_number
+        AND nes   = @it_nfm_ch-nfmkey
+      INTO TABLE @lt_db.
+
+    SELECT nes, nfs, bcu
+      FROM /nfm/tdefault
+      FOR ALL ENTRIES IN @it_nfm_ch
+      WHERE vtp = 'E'
+        AND vky = @lv_vky
+        AND nes = @it_nfm_ch-nfmkey
+      INTO TABLE @lt_tdef.
+
+    LOOP AT it_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm>).
+      READ TABLE lt_db ASSIGNING FIELD-SYMBOL(<fs_db>)
+          WITH TABLE KEY belnr = <fs_nfm>-doc_number
+                         posnr = <fs_nfm>-itm_number
+                         nes   = <fs_nfm>-nfmkey.
+
+      IF sy-subrc IS NOT INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '031'
+                        message_v1 = <fs_nfm>-doc_number
+                        message_v2 = <fs_nfm>-itm_number ) TO ct_return.
+        RETURN.
+      ENDIF.
+
+      CLEAR: ls_old, ls_new, lv_waers, ls_tdef.
+      MOVE-CORRESPONDING <fs_db> TO ls_old.
+      fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
+      ls_old-updkz = 'U'.
+      ls_new       = ls_old.
+
+      lv_waers = <fs_nfm>-ratecurky.
+      IF lv_waers IS INITIAL.
+        lv_waers = <fs_nfm>-bvalcurkyd.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = <fs_nfm>-nfmkey.
+        IF sy-subrc IS INITIAL.
+          lv_waers = ls_tdef-bcu.
+        ENDIF.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        lv_waers = ls_old-nkw.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        lv_waers = ls_old-bcu.
+      ENDIF.
+      IF lv_waers IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = <fs_nfm>-doc_number
+                                          iv_posnr = <fs_nfm>-itm_number ) TO ct_return.
+        RETURN.
+      ENDIF.
+
+      ls_new-ndt = <fs_nfm>-ratedetdat.
+      ls_new-kta = <fs_nfm>-actratedat.
+      ls_new-nku = <fs_nfm>-ratedoccur.
+      ls_new-nkn = <fs_nfm>-rate.
+      ls_new-nno = <fs_nfm>-rate.
+      ls_new-nkw = lv_waers.
+      ls_new-bcu = lv_waers.
+      ls_new-bkw = lv_waers.
+
+      IF <fs_nfm>-ratedetkey IS NOT INITIAL.
+        ls_new-nfs = <fs_nfm>-ratedetkey.
+      ENDIF.
+      IF ls_new-nfs IS INITIAL.
+        ls_new-nfs = ls_old-nfs.
+      ENDIF.
+      IF ls_new-nfs IS INITIAL.
+        IF ls_tdef IS INITIAL.
+          READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = <fs_nfm>-nfmkey.
+        ENDIF.
+        IF ls_tdef-nfs IS NOT INITIAL.
+          ls_new-nfs = ls_tdef-nfs.
+        ENDIF.
+      ENDIF.
+
+      IF <fs_nfm>-exchangekey IS NOT INITIAL.
+        ls_new-bsl = <fs_nfm>-exchangekey.
+      ENDIF.
+      IF ls_new-bsl IS INITIAL.
+        ls_new-bsl = ls_old-bsl.
+      ENDIF.
+
+      IF <fs_nfm>-basekey IS NOT INITIAL.
+        ls_new-neb = <fs_nfm>-basekey.
+      ENDIF.
+
+      fill_nfm_currency( CHANGING cs_orderpos = ls_old ).
+      fill_nfm_currency( CHANGING cs_orderpos = ls_new ).
+
+      IF ls_old-nkw IS INITIAL OR ls_new-nkw IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = <fs_nfm>-doc_number
+                                          iv_posnr = <fs_nfm>-itm_number ) TO ct_return.
+        RETURN.
+      ENDIF.
+
+      ls_new-updkz = 'U'.
+      APPEND ls_old TO lt_y.
+      APPEND ls_new TO lt_x.
+    ENDLOOP.
+
+    ls_save = save_nfm_orderpos( it_x = lt_x it_y = lt_y ).
+    IF ls_save-type = 'E'.
+      APPEND ls_save TO ct_return.
+    ENDIF.
+  ENDMETHOD.
+
   METHOD call_bapi_change_pos.
     DATA: lt_poitem    TYPE STANDARD TABLE OF bapimepoitem,
           lt_poitemx   TYPE STANDARD TABLE OF bapimepoitemx,
           lt_pocond    TYPE STANDARD TABLE OF bapimepocond,
           lt_pocondx   TYPE STANDARD TABLE OF bapimepocondx,
-          lt_cond      TYPE tt_pocond,
+          lt_cond      TYPE STANDARD TABLE OF bapimepocond,
           lt_cond_k    TYPE tt_cond,
           lt_itemx     TYPE tt_poitemx,
           ls_cond      TYPE bapimepocond,
           lv_need_pr   TYPE abap_bool,
-          lv_need_sch  TYPE abap_bool,
-          lv_need_nfm  TYPE abap_bool,
+          lv_has_fecha TYPE abap_bool,
           lt_sched     TYPE STANDARD TABLE OF bapimeposchedule,
           lt_sched_k   TYPE tt_sched,
           lt_sched_ch  TYPE STANDARD TABLE OF bapimeposchedule,
           lt_schedx    TYPE STANDARD TABLE OF bapimeposchedulx,
-          lv_po_item   TYPE bapimeposchedule-po_item,
           lv_found     TYPE abap_bool,
-          lt_nfm       TYPE STANDARD TABLE OF /nfm/bapidocitm,
-          lt_nfm_k     TYPE SORTED TABLE OF /nfm/bapidocitm
-                       WITH NON-UNIQUE KEY itm_number,
-          lt_nfm_ret   TYPE STANDARD TABLE OF bapiret2,
-          lv_itm_nfm   TYPE /nfm/bapidocitm-itm_number,
-          lv_nfm_found TYPE abap_bool.
+          lv_date_ext  TYPE bapimeposchedule-delivery_date,
+          lt_nfm       TYPE tt_nfm_std,
+          lt_nfm_k     TYPE tt_nfm,
+          lt_nfm_ch    TYPE tt_nfm_std,
+          lt_nfm_ret   TYPE tt_return,
+          ls_header    TYPE bapimepoheader,
+          ls_headerx   TYPE bapimepoheaderx,
+          lv_po_item   TYPE bapimeposchedule-po_item,
+          lv_item_bapi TYPE bapimepoitem-po_item.
 
     lt_itemx = is_param-t_poitemx.
 
@@ -111,9 +457,15 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
+      lv_item_bapi = |{ <fs_item>-po_item ALPHA = IN }|.
+
       IF <fs_itemx>-no_more_gr = abap_true.
         APPEND CORRESPONDING #( <fs_item> ) TO lt_poitem.
         APPEND CORRESPONDING #( <fs_itemx> ) TO lt_poitemx.
+      ELSE.
+        APPEND VALUE #( po_item = lv_item_bapi ) TO lt_poitem.
+        APPEND VALUE #( po_item  = lv_item_bapi
+                        po_itemx = abap_true ) TO lt_poitemx.
       ENDIF.
 
       IF <fs_itemx>-net_price = abap_true.
@@ -121,30 +473,64 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
 
       IF <fs_item>-invoice_date IS NOT INITIAL.
-        lv_need_sch = abap_true.
-        lv_need_nfm = abap_true.
+        lv_has_fecha = abap_true.
       ENDIF.
     ENDLOOP.
 
-    IF lv_need_pr = abap_true OR lv_need_sch = abap_true.
-      CALL FUNCTION 'BAPI_PO_GETDETAIL1'
-        EXPORTING
-          purchaseorder = is_param-iv_purchaseorder
-        TABLES
-          return     = rt_return
-          pocond     = lt_cond
-          poschedule = lt_sched.
-
-      READ TABLE rt_return TRANSPORTING NO FIELDS
-          WITH KEY type = 'E'.
+    IF lv_has_fecha = abap_true.
+      ensure_nfm_currency( EXPORTING iv_purchaseorder = is_param-iv_purchaseorder
+                                     it_poitem        = is_param-t_poitem
+                           CHANGING  ct_return        = rt_return ).
+      READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
       IF sy-subrc IS INITIAL.
-        IF lv_need_pr = abap_true.
+        RETURN.
+      ENDIF.
+    ENDIF.
+
+    IF lv_need_pr = abap_true OR lv_has_fecha = abap_true.
+      TRY.
+          CALL FUNCTION 'BAPI_PO_GETDETAIL1'
+            EXPORTING
+              purchaseorder = is_param-iv_purchaseorder
+            TABLES
+              return        = rt_return
+              pocond        = lt_cond
+              poschedule    = lt_sched.
+        CATCH cx_root INTO DATA(lx_gd1).
+          APPEND append_exc( lx_gd1 ) TO rt_return.
           RETURN.
-        ENDIF.
-        "Plan de entregas: BAPI de pedido puede no leer EKET
-        CLEAR: rt_return, lv_need_sch, lt_sched.
-      ELSE.
-        CLEAR rt_return.
+      ENDTRY.
+
+      LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
+        RETURN.
+      ENDLOOP.
+
+      CLEAR rt_return.
+    ENDIF.
+
+    IF lv_has_fecha = abap_true.
+      TRY.
+          CALL FUNCTION 'BAPI_PO_GETDETAIL'
+            EXPORTING
+              purchaseorder = is_param-iv_purchaseorder
+            TABLES
+              return        = lt_nfm_ret
+              nfmetallitms  = lt_nfm.
+        CATCH cx_root INTO DATA(lx_nfm).
+          APPEND VALUE #( type       = 'E'
+                          id         = 'ZCL_MSG_MM_003'
+                          number     = '035'
+                          message    = lx_nfm->get_text( )
+                          message_v1 = is_param-iv_purchaseorder ) TO rt_return.
+      ENDTRY.
+
+      LOOP AT lt_nfm_ret ASSIGNING FIELD-SYMBOL(<fs_nfm_ret>) WHERE type = 'E' OR type = 'A'.
+        APPEND <fs_nfm_ret> TO rt_return.
+      ENDLOOP.
+
+      READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
+      IF sy-subrc IS INITIAL.
+        RETURN.
       ENDIF.
     ENDIF.
 
@@ -188,8 +574,9 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDLOOP.
     ENDIF.
 
-    IF lv_need_sch = abap_true.
+    IF lv_has_fecha = abap_true.
       lt_sched_k = lt_sched.
+      lt_nfm_k   = lt_nfm.
 
       LOOP AT is_param-t_poitem ASSIGNING <fs_item>.
         IF <fs_item>-invoice_date IS INITIAL.
@@ -197,20 +584,24 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         ENDIF.
 
         CLEAR lv_found.
-        lv_po_item = |{ <fs_item>-po_item ALPHA = IN }|.
+        lv_po_item  = |{ <fs_item>-po_item ALPHA = IN }|.
+        lv_date_ext = |{ <fs_item>-invoice_date+6(2) }.{ <fs_item>-invoice_date+4(2) }.{ <fs_item>-invoice_date(4) }|.
 
         LOOP AT lt_sched_k ASSIGNING FIELD-SYMBOL(<fs_sched>) USING KEY primary_key
              WHERE po_item = lv_po_item.
-          <fs_sched>-delivery_date = <fs_item>-invoice_date.
+          <fs_sched>-delivery_date = lv_date_ext.
+          <fs_sched>-stat_date     = <fs_item>-invoice_date.
           APPEND <fs_sched> TO lt_sched_ch.
           APPEND VALUE #( po_item       = <fs_sched>-po_item
                           sched_line    = <fs_sched>-sched_line
                           po_itemx      = abap_true
-                          delivery_date = abap_true ) TO lt_schedx.
+                          sched_linex   = abap_true
+                          delivery_date = abap_true
+                          stat_date     = abap_true ) TO lt_schedx.
           lv_found = abap_true.
         ENDLOOP.
 
-        IF lv_found = abap_false AND lv_need_nfm = abap_false.
+        IF lv_found = abap_false.
           APPEND VALUE #( type       = 'E'
                           id         = 'ZCL_MSG_MM_003'
                           number     = '029'
@@ -218,71 +609,371 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
                           message_v2 = <fs_item>-po_item ) TO rt_return.
           RETURN.
         ENDIF.
+
+        IF lt_nfm_k IS NOT INITIAL.
+          apply_nfm_rates( EXPORTING iv_purchaseorder = is_param-iv_purchaseorder
+                                     iv_po_item       = <fs_item>-po_item
+                                     iv_invoice_date  = <fs_item>-invoice_date
+                           CHANGING  ct_nfm           = lt_nfm_k
+                                     ct_nfm_ch        = lt_nfm_ch
+                                     ct_return        = rt_return ).
+
+          READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
+          IF sy-subrc IS INITIAL.
+            RETURN.
+          ENDIF.
+        ENDIF.
       ENDLOOP.
+
+      IF lt_nfm IS NOT INITIAL AND lt_nfm_ch IS INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '031'
+                        message_v1 = is_param-iv_purchaseorder
+                        message_v2 = lv_po_item ) TO rt_return.
+        RETURN.
+      ENDIF.
     ENDIF.
 
-    "NFM: /NFM/2012_PO_PREPROCESSING lee NFMETALLITMS (ACTRATEDAT + UPDTYPE)
-    IF lv_need_nfm = abap_true.
-      CALL FUNCTION 'BAPI_PO_GETDETAIL'
+    IF lt_nfm_ch IS NOT INITIAL.
+      persist_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_ch
+                            CHANGING  ct_return = rt_return ).
+
+      READ TABLE rt_return TRANSPORTING NO FIELDS WITH KEY type = 'E'.
+      IF sy-subrc IS INITIAL.
+        RETURN.
+      ENDIF.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
         EXPORTING
-          purchaseorder = is_param-iv_purchaseorder
-          items         = abap_true
-        TABLES
-          return        = lt_nfm_ret
-          nfmetallitms  = lt_nfm.
+          wait = abap_true.
 
-      lt_nfm_k = lt_nfm.
-      CLEAR lt_nfm.
-
-      LOOP AT is_param-t_poitem ASSIGNING <fs_item>.
-        IF <fs_item>-invoice_date IS INITIAL.
-          CONTINUE.
+      LOOP AT lt_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm_c>).
+        lv_item_bapi = <fs_nfm_c>-itm_number.
+        READ TABLE lt_poitem ASSIGNING FIELD-SYMBOL(<fs_poi>)
+            WITH KEY po_item = lv_item_bapi.
+        IF sy-subrc IS INITIAL.
+          <fs_poi>-calctype = 'C'.
         ENDIF.
-
-        CLEAR lv_nfm_found.
-        lv_itm_nfm = |{ <fs_item>-po_item ALPHA = IN WIDTH = 6 }|.
-
-        LOOP AT lt_nfm_k ASSIGNING FIELD-SYMBOL(<fs_nfm>) USING KEY primary_key
-             WHERE itm_number = lv_itm_nfm.
-          <fs_nfm>-actratedat = <fs_item>-invoice_date.
-          <fs_nfm>-updtype    = 'U'.
-          APPEND <fs_nfm> TO lt_nfm.
-          lv_nfm_found = abap_true.
-        ENDLOOP.
-
-        IF lv_nfm_found = abap_false.
-          APPEND VALUE #( doc_number = is_param-iv_purchaseorder
-                          itm_number = lv_itm_nfm
-                          actratedat = <fs_item>-invoice_date
-                          updtype    = 'U' ) TO lt_nfm.
+        READ TABLE lt_poitemx ASSIGNING FIELD-SYMBOL(<fs_poix>)
+            WITH KEY po_item = lv_item_bapi.
+        IF sy-subrc IS INITIAL.
+          <fs_poix>-calctype = abap_true.
         ENDIF.
       ENDLOOP.
     ENDIF.
 
-    CALL FUNCTION 'BAPI_PO_CHANGE'
-      EXPORTING
-        purchaseorder = is_param-iv_purchaseorder
-        poheader      = is_param-is_poheader
-        poheaderx     = is_param-is_poheaderx
-      TABLES
-        return       = rt_return
-        poitem       = lt_poitem
-        poitemx      = lt_poitemx
-        pocond       = lt_pocond
-        pocondx      = lt_pocondx
-        poschedule   = lt_sched_ch
-        poschedulex  = lt_schedx
-        nfmetallitms = lt_nfm.
+    TRY.
+        CALL FUNCTION 'BAPI_PO_CHANGE'
+          EXPORTING
+            purchaseorder = is_param-iv_purchaseorder
+            poheader      = ls_header
+            poheaderx     = ls_headerx
+          TABLES
+            return        = rt_return
+            poitem        = lt_poitem
+            poitemx       = lt_poitemx
+            pocond        = lt_pocond
+            pocondx       = lt_pocondx
+            poschedule    = lt_sched_ch
+            poschedulex   = lt_schedx.
+      CATCH cx_root INTO DATA(lx_ch).
+        APPEND append_exc( lx_ch ) TO rt_return.
+        RETURN.
+    ENDTRY.
 
-    READ TABLE rt_return TRANSPORTING NO FIELDS
-        WITH KEY type = 'S'.
-    IF sy-subrc IS NOT INITIAL.
+    LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
       RETURN.
-    ENDIF.
+    ENDLOOP.
 
     CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
       EXPORTING
         wait = abap_true.
+  ENDMETHOD.
+
+  METHOD apply_nfm_rates.
+    TYPES: BEGIN OF ty_tvgw,
+             nes   TYPE /nfm/nes,
+             kappl TYPE kappl,
+           END OF ty_tvgw,
+           BEGIN OF ty_nes,
+             nes TYPE /nfm/nes,
+           END OF ty_nes,
+           BEGIN OF ty_tdef,
+             nes TYPE /nfm/nes,
+             nfs TYPE /nfm/nfs,
+             bcu TYPE /nfm/bcu,
+           END OF ty_tdef,
+           BEGIN OF ty_quot,
+             quotyp TYPE oic_quotyp,
+             quotno TYPE oic_quota,
+           END OF ty_quot,
+           BEGIN OF ty_oicqp,
+             quotyp   TYPE oic_quotyp,
+             quotno   TYPE oic_quota,
+             quotdate TYPE oic_qtdat,
+             price    TYPE oic_price,
+           END OF ty_oicqp.
+
+    DATA: lv_item     TYPE /nfm/bapidocitm-itm_number,
+          lv_ekorg    TYPE ekorg,
+          lv_lifnr    TYPE lifnr,
+          lv_matnr    TYPE matnr,
+          lv_matnr18  TYPE matnr18,
+          lv_werks    TYPE werks_d,
+          lv_boesl    TYPE /nfm/boesl,
+          lv_boesl_ln TYPE /nfm/boesl,
+          lv_nfs      TYPE /nfm/nfs,
+          lv_bcu      TYPE /nfm/bcu,
+          lv_vky      TYPE /nfm/vky,
+          lv_quotyp   TYPE oic_quotyp,
+          lv_quotno   TYPE oic_quota,
+          lv_nfmkey   TYPE /nfm/nes,
+          lv_nes      TYPE /nfm/nes,
+          lv_kappl    TYPE kappl,
+          lv_price    TYPE oic_price,
+          lv_quotdate TYPE oic_qtdat,
+          lv_prefix   TYPE c LENGTH 2,
+          lv_msg      TYPE bapi_msg,
+          lt_tvgw     TYPE STANDARD TABLE OF ty_tvgw,
+          lt_nes      TYPE SORTED TABLE OF ty_nes WITH UNIQUE KEY nes,
+          ls_nes      TYPE ty_nes,
+          lt_tdef     TYPE SORTED TABLE OF ty_tdef WITH UNIQUE KEY nes,
+          ls_tdef     TYPE ty_tdef,
+          lt_quot     TYPE SORTED TABLE OF ty_quot WITH UNIQUE KEY quotyp quotno,
+          ls_quot     TYPE ty_quot,
+          lt_oicqp    TYPE SORTED TABLE OF ty_oicqp WITH NON-UNIQUE KEY quotyp quotno,
+          lt_oicqp_db TYPE STANDARD TABLE OF ty_oicqp.
+
+    lv_item = |{ iv_po_item ALPHA = IN }|.
+    lv_vky  = iv_purchaseorder.
+
+    SELECT SINGLE Supplier, PurchasingOrganization
+      FROM zi_mm_wrapper_ekko
+      WHERE PurchaseOrder = @iv_purchaseorder
+      INTO (@lv_lifnr, @lv_ekorg).
+
+    SELECT SINGLE Material, Plant
+      FROM zi_mm_wrapper_ekpo
+      WHERE PurchaseOrder     = @iv_purchaseorder
+        AND PurchaseOrderItem = @iv_po_item
+      INTO (@lv_matnr, @lv_werks).
+
+    lv_matnr18 = |{ lv_matnr ALPHA = IN WIDTH = 18 }|.
+
+    SELECT SINGLE NfKey
+      FROM zi_mm_wrapper_lfm1
+      WHERE Supplier               = @lv_lifnr
+        AND PurchasingOrganization = @lv_ekorg
+      INTO @lv_boesl.
+
+    SELECT nes, kappl
+      FROM /nfm/tvgw
+      WHERE matnr = @lv_matnr18
+        AND werks = @lv_werks
+      INTO TABLE @lt_tvgw.
+
+    IF lt_tvgw IS INITIAL.
+      SELECT nes, kappl
+        FROM /nfm/tvgw
+        WHERE matnr = @lv_matnr
+          AND werks = @lv_werks
+        INTO TABLE @lt_tvgw.
+    ENDIF.
+
+    LOOP AT ct_nfm ASSIGNING FIELD-SYMBOL(<fs_nfm>) USING KEY primary_key
+         WHERE itm_number = lv_item.
+      ls_nes-nes = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
+      IF ls_nes-nes IS NOT INITIAL.
+        INSERT ls_nes INTO TABLE lt_nes.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_nes IS NOT INITIAL.
+      SELECT nes, nfs, bcu
+        FROM /nfm/tdefault
+        FOR ALL ENTRIES IN @lt_nes
+        WHERE vtp = 'E'
+          AND vky = @lv_vky
+          AND nes = @lt_nes-nes
+        INTO TABLE @lt_tdef.
+    ENDIF.
+
+    LOOP AT ct_nfm ASSIGNING <fs_nfm> USING KEY primary_key
+         WHERE itm_number = lv_item.
+      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_nes, lv_kappl, lv_boesl_ln, lv_nfmkey, lv_prefix.
+
+      lv_nfmkey   = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
+      lv_boesl_ln = lv_boesl.
+      IF <fs_nfm>-exchangekey IS NOT INITIAL.
+        lv_boesl_ln = <fs_nfm>-exchangekey.
+      ENDIF.
+
+      READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = lv_nfmkey.
+      IF sy-subrc IS INITIAL.
+        lv_nfs = ls_tdef-nfs.
+        lv_bcu = ls_tdef-bcu.
+      ENDIF.
+      IF lv_bcu IS INITIAL AND <fs_nfm>-bvalcurkyd IS NOT INITIAL.
+        lv_bcu = <fs_nfm>-bvalcurkyd.
+      ENDIF.
+      IF lv_bcu IS INITIAL AND <fs_nfm>-ratecurky IS NOT INITIAL.
+        lv_bcu = CONV /nfm/bcu( <fs_nfm>-ratecurky ).
+      ENDIF.
+      IF lv_bcu IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = iv_purchaseorder
+                                          iv_posnr = lv_item ) TO ct_return.
+        RETURN.
+      ENDIF.
+
+      IF lv_nfs = '02' AND <fs_nfm>-rate IS NOT INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      lv_prefix = COND #( WHEN lv_nfs = '04' OR lv_nfs = '08' THEN 'M1' ELSE 'T1' ).
+      lv_quotyp = |{ lv_prefix }{ condense( val = CONV string( lv_boesl_ln ) ) }|.
+
+      LOOP AT lt_tvgw ASSIGNING FIELD-SYMBOL(<fs_tvgw>).
+        IF <fs_tvgw>-nes = lv_nfmkey OR ( strlen( <fs_tvgw>-nes ) >= 3 AND <fs_tvgw>-nes(3) = lv_nfmkey ).
+          lv_nes   = <fs_tvgw>-nes.
+          lv_kappl = <fs_tvgw>-kappl.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
+
+      IF lv_nes IS INITIAL.
+        lv_nes = lv_nfmkey.
+      ENDIF.
+      IF lv_kappl IS INITIAL.
+        lv_kappl = 'M'.
+      ENDIF.
+
+      lv_quotno = |{ condense( val = CONV string( lv_nes ) ) }{ condense( val = CONV string( lv_kappl ) ) }{ lv_ekorg }{ lv_bcu }|.
+      ls_quot-quotyp = lv_quotyp.
+      ls_quot-quotno = lv_quotno.
+      INSERT ls_quot INTO TABLE lt_quot.
+    ENDLOOP.
+
+    IF lt_quot IS NOT INITIAL.
+      SELECT quotyp, quotno, quotdate, price
+        FROM oicqp
+        FOR ALL ENTRIES IN @lt_quot
+        WHERE quosrc    = 'NF'
+          AND quotyp    = @lt_quot-quotyp
+          AND quotno    = @lt_quot-quotno
+          AND quotdate <= @iv_invoice_date
+        INTO TABLE @lt_oicqp_db.
+      lt_oicqp = lt_oicqp_db.
+    ENDIF.
+
+    LOOP AT ct_nfm ASSIGNING <fs_nfm> USING KEY primary_key
+         WHERE itm_number = lv_item.
+      CLEAR: lv_nfs, lv_bcu, lv_quotyp, lv_quotno, lv_price, lv_quotdate, lv_prefix, lv_msg, lv_nes, lv_kappl,
+             lv_boesl_ln, lv_nfmkey.
+
+      lv_nfmkey   = condense( val = CONV string( <fs_nfm>-nfmkey ) ).
+      lv_boesl_ln = lv_boesl.
+      IF <fs_nfm>-exchangekey IS NOT INITIAL.
+        lv_boesl_ln = <fs_nfm>-exchangekey.
+      ENDIF.
+
+      READ TABLE lt_tdef INTO ls_tdef WITH TABLE KEY nes = lv_nfmkey.
+      IF sy-subrc IS INITIAL.
+        lv_nfs = ls_tdef-nfs.
+        lv_bcu = ls_tdef-bcu.
+      ENDIF.
+
+      IF lv_bcu IS INITIAL AND <fs_nfm>-bvalcurkyd IS NOT INITIAL.
+        lv_bcu = <fs_nfm>-bvalcurkyd.
+      ENDIF.
+      IF lv_bcu IS INITIAL AND <fs_nfm>-ratecurky IS NOT INITIAL.
+        lv_bcu = CONV /nfm/bcu( <fs_nfm>-ratecurky ).
+      ENDIF.
+      IF lv_bcu IS INITIAL.
+        APPEND append_nfm_currency_error( iv_belnr = iv_purchaseorder
+                                          iv_posnr = lv_item ) TO ct_return.
+        RETURN.
+      ENDIF.
+
+      IF <fs_nfm>-ratedetkey IS INITIAL AND lv_nfs IS NOT INITIAL.
+        <fs_nfm>-ratedetkey = lv_nfs.
+      ENDIF.
+      IF <fs_nfm>-exchangekey IS INITIAL AND lv_boesl_ln IS NOT INITIAL.
+        <fs_nfm>-exchangekey = lv_boesl_ln.
+      ENDIF.
+      IF <fs_nfm>-ratecurky IS INITIAL.
+        <fs_nfm>-ratecurky = lv_bcu.
+      ENDIF.
+      IF <fs_nfm>-bvalcurkyd IS INITIAL.
+        <fs_nfm>-bvalcurkyd = lv_bcu.
+      ENDIF.
+
+      IF lv_nfs = '02' AND <fs_nfm>-rate IS NOT INITIAL.
+        <fs_nfm>-ratedetdat = iv_invoice_date.
+        <fs_nfm>-netrate    = <fs_nfm>-rate.
+        <fs_nfm>-ratedoccur = <fs_nfm>-rate.
+        <fs_nfm>-updtype    = 'U'.
+        APPEND <fs_nfm> TO ct_nfm_ch.
+        CONTINUE.
+      ENDIF.
+
+      lv_prefix = COND #( WHEN lv_nfs = '04' OR lv_nfs = '08' THEN 'M1' ELSE 'T1' ).
+      lv_quotyp = |{ lv_prefix }{ condense( val = CONV string( lv_boesl_ln ) ) }|.
+
+      LOOP AT lt_tvgw ASSIGNING <fs_tvgw>.
+        IF <fs_tvgw>-nes = lv_nfmkey OR ( strlen( <fs_tvgw>-nes ) >= 3 AND <fs_tvgw>-nes(3) = lv_nfmkey ).
+          lv_nes   = <fs_tvgw>-nes.
+          lv_kappl = <fs_tvgw>-kappl.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
+
+      IF lv_nes IS INITIAL.
+        lv_nes = lv_nfmkey.
+      ENDIF.
+      IF lv_kappl IS INITIAL.
+        lv_kappl = 'M'.
+      ENDIF.
+
+      lv_quotno = |{ condense( val = CONV string( lv_nes ) ) }{ condense( val = CONV string( lv_kappl ) ) }{ lv_ekorg }{ lv_bcu }|.
+
+      LOOP AT lt_oicqp ASSIGNING FIELD-SYMBOL(<fs_oicqp>) USING KEY primary_key
+           WHERE quotyp = lv_quotyp
+             AND quotno = lv_quotno.
+        IF lv_nfs = '03' OR lv_nfs = '08'.
+          IF <fs_oicqp>-quotdate < iv_invoice_date AND <fs_oicqp>-quotdate >= lv_quotdate.
+            lv_quotdate = <fs_oicqp>-quotdate.
+            lv_price    = <fs_oicqp>-price.
+          ENDIF.
+        ELSE.
+          IF <fs_oicqp>-quotdate >= lv_quotdate.
+            lv_quotdate = <fs_oicqp>-quotdate.
+            lv_price    = <fs_oicqp>-price.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+
+      IF lv_price IS INITIAL.
+        lv_msg = |OICQP NF { lv_quotyp } / { lv_quotno } fecha { iv_invoice_date } NFS { lv_nfs }|.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '034'
+                        message    = lv_msg
+                        message_v1 = lv_quotyp
+                        message_v2 = lv_quotno
+                        message_v3 = iv_invoice_date
+                        message_v4 = lv_nfs ) TO ct_return.
+        RETURN.
+      ENDIF.
+
+      <fs_nfm>-ratedetdat = iv_invoice_date.
+      <fs_nfm>-actratedat = lv_quotdate.
+      <fs_nfm>-rate       = lv_price.
+      <fs_nfm>-ratedoccur = lv_price.
+      <fs_nfm>-netrate    = lv_price.
+      <fs_nfm>-updtype    = 'U'.
+      APPEND <fs_nfm> TO ct_nfm_ch.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD get_gross_condition.
@@ -305,13 +996,14 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         RETURN.
       ENDIF.
     ENDLOOP.
-  ENDMETHOD.
 
-  METHOD get_max_item.
-    SELECT MAX( PurchaseOrderItem )
-      FROM zi_mm_wrapper_ekpo
-      WHERE PurchaseOrder = @iv_purchaseorder
-      INTO @rv_item.
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
+         WHERE itm_number = lv_item.
+      IF <fs_cond>-cond_st_no = '001' AND <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD call_bapi_new_pos.
@@ -331,7 +1023,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         system_failure = 2
         OTHERS         = 3.
 
-    DATA(lv_max_item) = get_max_item( is_param-iv_purchaseorder ).
+    DATA(lv_max_item) = zcl_mm_wrapper_nfm=>get_max_item( is_param-iv_purchaseorder ).
 
     LOOP AT is_param-t_poitem ASSIGNING FIELD-SYMBOL(<fs_poitem>).
       lv_max_item += 10.
