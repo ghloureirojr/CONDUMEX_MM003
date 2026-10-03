@@ -437,6 +437,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lv_has_fecha TYPE abap_bool,
           lv_got_sched TYPE abap_bool,
           lv_bstyp     TYPE bstyp,
+          lv_gd1_err   TYPE abap_bool,
+          lt_pos_fae   TYPE STANDARD TABLE OF /nfm/torderpos,
           lt_sched     TYPE STANDARD TABLE OF bapimeposchedule,
           lt_sched_k   TYPE tt_sched,
           lt_sched_ch  TYPE STANDARD TABLE OF bapimeposchedule,
@@ -523,19 +525,22 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDTRY.
 
       IF lv_got_sched = abap_true.
+        CLEAR lv_gd1_err.
         LOOP AT rt_return TRANSPORTING NO FIELDS WHERE type = 'E' OR type = 'A'.
+          lv_gd1_err = abap_true.
+          EXIT.
+        ENDLOOP.
+
+        IF lv_gd1_err = abap_true.
           IF lv_need_pr = abap_true.
             RETURN.
           ENDIF.
           "Contrato L: GETDETAIL1 puede fallar; NFM sigue por TORDERPOS
           CLEAR: rt_return, lt_sched.
           lv_got_sched = abap_false.
-          EXIT.
-        ENDLOOP.
-      ENDIF.
-
-      IF lv_got_sched = abap_true.
-        CLEAR rt_return.
+        ELSE.
+          CLEAR rt_return.
+        ENDIF.
       ENDIF.
     ENDIF.
 
@@ -571,12 +576,22 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ENDIF.
 
       IF lt_nfm IS INITIAL.
-        SELECT *
-          FROM /nfm/torderpos
-          FOR ALL ENTRIES IN @is_param-t_poitem
-          WHERE belnr = @is_param-iv_purchaseorder
-            AND posnr = @is_param-t_poitem-po_item
-          INTO TABLE @lt_db_nfm.
+        CLEAR lt_pos_fae.
+        LOOP AT is_param-t_poitem ASSIGNING <fs_item>.
+          IF <fs_item>-invoice_date IS INITIAL.
+            CONTINUE.
+          ENDIF.
+          APPEND VALUE #( posnr = <fs_item>-po_item ) TO lt_pos_fae.
+        ENDLOOP.
+
+        IF lt_pos_fae IS NOT INITIAL.
+          SELECT *
+            FROM /nfm/torderpos
+            FOR ALL ENTRIES IN @lt_pos_fae
+            WHERE belnr = @is_param-iv_purchaseorder
+              AND posnr = @lt_pos_fae-posnr
+            INTO TABLE @lt_db_nfm.
+        ENDIF.
 
         LOOP AT lt_db_nfm ASSIGNING FIELD-SYMBOL(<fs_dbn>).
           APPEND VALUE #( doc_number  = <fs_dbn>-belnr
