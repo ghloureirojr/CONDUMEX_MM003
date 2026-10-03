@@ -1127,124 +1127,120 @@ CLASS lsc_ZI_MM_MONCOMP IMPLEMENTATION.
   METHOD check_before_save.
   ENDMETHOD.
 
-  METHOD save.
-    DATA: lt_return    TYPE zcl_mm_wrapper_sag_change=>tt_return,
-          lv_sag_ok    TYPE abap_bool,
-          lv_err_txt   TYPE string,
-          lv_timestamp TYPE timestamp.
+METHOD save.
+  DATA: lt_return    TYPE zcl_mm_wrapper_sag_change=>tt_return,
+        lv_sag_ok    TYPE abap_bool,
+        lv_sag_error TYPE abap_bool,
+        lv_err_txt   TYPE string,
+        lv_timestamp TYPE timestamp.
 
-    FIELD-SYMBOLS: <fs_sag_id> TYPE lcl_buffer=>ty_id,
-                   <fs_pos>    TYPE lcl_buffer=>ty_posicion,
-                   <fs_br>     TYPE bapiret2.
+  FIELD-SYMBOLS: <fs_sag_id> TYPE lcl_buffer=>ty_id,
+                 <fs_pos>    TYPE lcl_buffer=>ty_posicion,
+                 <fs_br>     TYPE bapiret2.
 
-    LOOP AT lcl_buffer=>gt_sag ASSIGNING FIELD-SYMBOL(<fs_sag>).
-      CLEAR: lt_return, lv_sag_ok, lv_err_txt.
+  LOOP AT lcl_buffer=>gt_sag ASSIGNING FIELD-SYMBOL(<fs_sag>).
+    CLEAR: lt_return, lv_sag_ok, lv_err_txt.
 
-      lt_return = zcl_mm_wrapper_sag_change=>call_bapi_change( <fs_sag> ).
+    lt_return = zcl_mm_wrapper_sag_change=>call_bapi_change( <fs_sag> ).
 
-      READ TABLE lcl_buffer=>gt_sag_id ASSIGNING <fs_sag_id>
-          WITH TABLE KEY id COMPONENTS oc = <fs_sag>-iv_purchasingdocument.
+    READ TABLE lcl_buffer=>gt_sag_id ASSIGNING <fs_sag_id>
+        WITH TABLE KEY id COMPONENTS oc = <fs_sag>-iv_purchasingdocument.
 
-      IF sy-subrc IS NOT INITIAL.
-        CONTINUE.
-      ENDIF.
+    IF sy-subrc IS NOT INITIAL.
+      CONTINUE.
+    ENDIF.
 
+    READ TABLE lt_return TRANSPORTING NO FIELDS
+        WITH KEY type = 'E'.
+    lv_sag_ok = xsdbool( sy-subrc <> 0 ).
+    IF lv_sag_ok = abap_true.
       READ TABLE lt_return TRANSPORTING NO FIELDS
-          WITH KEY type = 'E'.
+          WITH KEY type = 'A'.
       lv_sag_ok = xsdbool( sy-subrc <> 0 ).
-      IF lv_sag_ok = abap_true.
-        READ TABLE lt_return TRANSPORTING NO FIELDS
-            WITH KEY type = 'A'.
-        lv_sag_ok = xsdbool( sy-subrc <> 0 ).
-      ENDIF.
+    ENDIF.
 
-      LOOP AT lt_return ASSIGNING <fs_br>.
-        IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
-          lv_err_txt = <fs_br>-message.
-          IF lv_err_txt IS INITIAL.
-            lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
-          ENDIF.
-          EXIT.
+    LOOP AT lt_return ASSIGNING <fs_br>.
+      IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
+        lv_err_txt = <fs_br>-message.
+        IF lv_err_txt IS INITIAL.
+          lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
         ENDIF.
-      ENDLOOP.
+        EXIT.
+      ENDIF.
+    ENDLOOP.
 
-      LOOP AT <fs_sag_id>-t_pos ASSIGNING <fs_pos>.
-        GET TIME STAMP FIELD lv_timestamp.
+    LOOP AT <fs_sag_id>-t_pos ASSIGNING <fs_pos>.
+      GET TIME STAMP FIELD lv_timestamp.
 
-        IF lv_sag_ok = abap_true.
-          APPEND VALUE #( client          = sy-mandt
-                          oc              = <fs_sag>-iv_purchasingdocument
-                          posicion        = <fs_pos>-posicion
-                          usuario         = cl_abap_context_info=>get_user_technical_name( )
-                          fecha_hora      = lv_timestamp
-                          precio_asn      = <fs_pos>-precioasn
-                          moneda_asn      = <fs_pos>-monedaasn
-                          accion          = '01'
-                          estado          = '06'
-                          precio_anterior = <fs_pos>-preciooc
-                          precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
+      IF lv_sag_ok = abap_true.
+        APPEND VALUE #( client          = sy-mandt
+                        oc              = <fs_sag>-iv_purchasingdocument
+                        posicion        = <fs_pos>-posicion
+                        usuario         = cl_abap_context_info=>get_user_technical_name( )
+                        fecha_hora      = lv_timestamp
+                        precio_asn      = <fs_pos>-precioasn
+                        moneda_asn      = <fs_pos>-monedaasn
+                        accion          = '01'
+                        estado          = '06'
+                        precio_anterior = <fs_pos>-preciooc
+                        precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
 
+        reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                 oc       = <fs_sag>-iv_purchasingdocument
+                                                 Posicion = <fs_pos>-posicion
+                                                 %msg     = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                         number   = 017
+                                                                         v1       = <fs_sag>-iv_purchasingdocument
+                                                                         v2       = <fs_pos>-posicion
+                                                                         severity = if_abap_behv_message=>severity-success ) ) ).
+      ELSE.
+        IF lv_err_txt IS INITIAL.
           reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                    oc       = <fs_sag>-iv_purchasingdocument
                                                    Posicion = <fs_pos>-posicion
                                                    %msg     = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                           number   = 017
+                                                                           number   = 016
                                                                            v1       = <fs_sag>-iv_purchasingdocument
                                                                            v2       = <fs_pos>-posicion
-                                                                           severity = if_abap_behv_message=>severity-success ) ) ).
+                                                                           severity = if_abap_behv_message=>severity-error ) ) ).
         ELSE.
-          APPEND VALUE #( client     = sy-mandt
-                          oc         = <fs_sag>-iv_purchasingdocument
-                          posicion   = <fs_pos>-posicion
-                          usuario    = cl_abap_context_info=>get_user_technical_name( )
-                          fecha_hora = lv_timestamp ) TO lcl_buffer=>gt_log.
-
-          IF lv_err_txt IS INITIAL.
-            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                     oc       = <fs_sag>-iv_purchasingdocument
-                                                     Posicion = <fs_pos>-posicion
-                                                     %msg     = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                             number   = 016
-                                                                             v1       = <fs_sag>-iv_purchasingdocument
-                                                                             v2       = <fs_pos>-posicion
-                                                                             severity = if_abap_behv_message=>severity-error ) ) ).
-          ELSE.
-            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                     oc       = <fs_sag>-iv_purchasingdocument
-                                                     Posicion = <fs_pos>-posicion
-                                                     %msg     = new_message_with_text(
-                                                                  severity = if_abap_behv_message=>severity-error
-                                                                  text     = lv_err_txt ) ) ).
-          ENDIF.
-
-          failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
-                                                 oc          = <fs_sag>-iv_purchasingdocument
-                                                 Posicion    = <fs_pos>-posicion
-                                                 %fail-cause = if_abap_behv=>cause-unspecific ) ).
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   oc       = <fs_sag>-iv_purchasingdocument
+                                                   Posicion = <fs_pos>-posicion
+                                                   %msg     = new_message_with_text(
+                                                                severity = if_abap_behv_message=>severity-error
+                                                                text     = lv_err_txt ) ) ).
         ENDIF.
 
-        CLEAR lv_timestamp.
-      ENDLOOP.
-    ENDLOOP.
-
-    IF lcl_buffer=>gt_log IS NOT INITIAL.
-      INSERT zmm_moncomp_log FROM TABLE @lcl_buffer=>gt_log.
-
-      IF sy-subrc IS INITIAL.
-        reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp
-                                          ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                number   = 013
-                                                                severity = if_abap_behv_message=>severity-success ) ) ).
-      ELSE.
-        failed-zi_mm_moncomp   = VALUE #( BASE failed-zi_mm_moncomp
-                                          ( %action-uploadExcel = 1 ) ).
-        reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp
-                                          ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                number   = 014
-                                                                severity = if_abap_behv_message=>severity-error ) ) ).
+        failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                               oc          = <fs_sag>-iv_purchasingdocument
+                                               Posicion    = <fs_pos>-posicion
+                                               %fail-cause = if_abap_behv=>cause-unspecific ) ).
+        lv_sag_error = abap_true.
       ENDIF.
+
+      CLEAR lv_timestamp.
+    ENDLOOP.
+  ENDLOOP.
+
+  IF lcl_buffer=>gt_log IS NOT INITIAL AND lv_sag_error = abap_false.
+    INSERT zmm_moncomp_log FROM TABLE @lcl_buffer=>gt_log.
+
+    IF sy-subrc IS INITIAL.
+      reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp
+                                        ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                              number   = 013
+                                                              severity = if_abap_behv_message=>severity-success ) ) ).
+    ELSE.
+      failed-zi_mm_moncomp   = VALUE #( BASE failed-zi_mm_moncomp
+                                        ( %action-uploadExcel = 1 ) ).
+      reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp
+                                        ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                              number   = 014
+                                                              severity = if_abap_behv_message=>severity-error ) ) ).
     ENDIF.
-  ENDMETHOD.
+  ENDIF.
+ENDMETHOD.
 
   METHOD cleanup.
     CLEAR: lcl_buffer=>gt_log,
