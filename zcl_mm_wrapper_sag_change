@@ -82,6 +82,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         CALL FUNCTION 'BAPI_SAG_GETDETAIL'
           EXPORTING
             purchasingdocument = is_param-iv_purchasingdocument
+            item_data          = abap_true
+            conditions         = abap_true
           TABLES
             return             = lt_return_get
             item_cond_validity = lt_val
