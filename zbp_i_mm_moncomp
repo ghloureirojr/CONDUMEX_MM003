@@ -475,11 +475,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD authPrecioASN.
-    TYPES: BEGIN OF ty_tord,
-             belnr TYPE /nfm/torderpos-belnr,
-             posnr TYPE /nfm/torderpos-posnr,
-           END OF ty_tord.
-
     DATA: lt_hist       TYPE SORTED TABLE OF   zi_oc_history_sum        WITH NON-UNIQUE KEY PurchaseOrder PurchaseOrderItem,
           lt_asn        TYPE SORTED TABLE OF   zi_mm_po_delivery_exists WITH NON-UNIQUE KEY PurchaseOrder PurchaseOrderItem,
           lt_id         TYPE STANDARD TABLE OF lcl_buffer=>ty_id        WITH UNIQUE HASHED KEY id COMPONENTS oc,
@@ -496,8 +491,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           lt_nfm_id     TYPE STANDARD TABLE OF lcl_buffer=>ty_id
                           WITH UNIQUE HASHED KEY id COMPONENTS oc,
           lt_nfm_result TYPE STANDARD TABLE OF zcl_mm_parallel_nfm_sa=>ty_return,
-          lt_tord_key   TYPE STANDARD TABLE OF ty_tord,
-          lt_torder     TYPE SORTED TABLE OF ty_tord WITH NON-UNIQUE KEY belnr posnr,
           lv_timestamp  TYPE timestamp,
           lv_buffer     TYPE xstring,
           lv_sag_buffer TYPE xstring,
@@ -543,20 +536,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         AND PurchaseOrderItem = @keys-Posicion
       INTO TABLE @lt_asn.
 
-    LOOP AT lt_moncomp ASSIGNING FIELD-SYMBOL(<fs_tord>).
-      APPEND VALUE #( belnr = CONV /nfm/torderpos-belnr( <fs_tord>-oc )
-                      posnr = CONV /nfm/torderpos-posnr( <fs_tord>-Posicion ) ) TO lt_tord_key.
-    ENDLOOP.
-
-    IF lt_tord_key IS NOT INITIAL.
-      SELECT belnr, posnr
-        FROM /nfm/torderpos
-        FOR ALL ENTRIES IN @lt_tord_key
-        WHERE belnr = @lt_tord_key-belnr
-          AND posnr = @lt_tord_key-posnr
-        INTO TABLE @lt_torder.
-    ENDIF.
-
     LOOP AT lt_moncomp ASSIGNING FIELD-SYMBOL(<fs_moncomp>).
       GET TIME STAMP FIELD lv_timestamp.
 
@@ -576,54 +555,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       ENDIF.
 
       IF <fs_moncomp>-TipoDocumento = 'L'.
-        IF <fs_moncomp>-IsNfm = 'X'
-           AND line_exists( lt_torder[ belnr = CONV /nfm/torderpos-belnr( <fs_moncomp>-oc )
-                                       posnr = CONV /nfm/torderpos-posnr( <fs_moncomp>-Posicion ) ] ).
-          IF <fs_moncomp>-FechaFactura IS INITIAL.
-            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                     %tky = keys[ KEY id %key-oc       = <fs_moncomp>-oc
-                                                                         %key-Posicion = <fs_moncomp>-Posicion ]-%tky
-                                                     %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                         number   = 030
-                                                                         v1       = <fs_moncomp>-oc
-                                                                         v2       = <fs_moncomp>-Posicion
-                                                                         severity = if_abap_behv_message=>severity-error ) ) ).
-            CLEAR lv_timestamp.
-            CONTINUE.
-          ENDIF.
-
-          READ TABLE lt_nfm_sa ASSIGNING FIELD-SYMBOL(<fs_nfm>)
-              WITH TABLE KEY iv_purchasingdocument = <fs_moncomp>-oc.
-
-          IF sy-subrc IS NOT INITIAL.
-            INSERT VALUE #( iv_purchasingdocument = <fs_moncomp>-oc )
-                   INTO TABLE lt_nfm_sa ASSIGNING <fs_nfm>.
-            APPEND VALUE #( oc = <fs_moncomp>-oc ) TO lt_nfm_id.
-          ENDIF.
-
-          INSERT VALUE #( item         = <fs_moncomp>-Posicion
-                          invoice_date = <fs_moncomp>-FechaFactura
-                          price        = <fs_moncomp>-PrecioASN
-                          currency     = <fs_moncomp>-MonedaASN )
-                 INTO TABLE <fs_nfm>-t_item.
-
-          IF <fs_nfm>-iv_quotdate IS INITIAL OR <fs_moncomp>-FechaFactura < <fs_nfm>-iv_quotdate.
-            <fs_nfm>-iv_quotdate = <fs_moncomp>-FechaFactura.
-          ENDIF.
-
-          READ TABLE lt_nfm_id ASSIGNING <fs_nfm_id>
-              WITH TABLE KEY id COMPONENTS oc = <fs_moncomp>-oc.
-
-          APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
-                          precioOC  = <fs_moncomp>-PrecioOC
-                          precioASN = <fs_moncomp>-PrecioASN
-                          monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_nfm_id>-t_pos.
-
-          lv_run_nfm = abap_true.
-          CLEAR lv_timestamp.
-          CONTINUE.
-        ENDIF.
-
         IF <fs_moncomp>-MonedaOC <> <fs_moncomp>-MonedaASN.
           APPEND VALUE #( client     = sy-mandt
                           oc         = <fs_moncomp>-oc
