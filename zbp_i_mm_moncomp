@@ -934,121 +934,99 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
     ENDIF.
 
     IF lv_run_sag = abap_true.
-      CLEAR: lt_in, lv_sag_buffer.
+      LOOP AT lt_sag ASSIGNING FIELD-SYMBOL(<fs_sag_run>).
+        APPEND VALUE #( oc      = <fs_sag_run>-iv_purchasingdocument
+                        bapiret = zcl_mm_wrapper_sag_change=>call_bapi_change( <fs_sag_run> ) )
+               TO lt_sag_result.
+      ENDLOOP.
 
-      DATA(ls_sag_data) = VALUE zcl_mm_parallel_sag_change=>ty_data( sag_change = CORRESPONDING #( lt_sag ) ).
+      LOOP AT lt_sag_result ASSIGNING FIELD-SYMBOL(<fs_sag_res>).
+        READ TABLE lt_sag_id ASSIGNING <fs_sag_id>
+            WITH TABLE KEY id COMPONENTS oc = <fs_sag_res>-oc.
 
-      EXPORT data = ls_sag_data TO DATA BUFFER lv_sag_buffer.
-      INSERT lv_sag_buffer INTO TABLE lt_in.
+        IF sy-subrc IS NOT INITIAL.
+          CONTINUE.
+        ENDIF.
 
-      DATA(lo_sag_parallel) = NEW zcl_mm_parallel_sag_change( p_local_server = abap_true ).
-
-      TRY.
-          lo_sag_parallel->run( EXPORTING p_in_tab  = lt_in
-                                          p_debug   = abap_false
-                                IMPORTING p_out_tab = DATA(lt_sag_out) ).
-        CATCH cx_root INTO DATA(lx_sag).
-          LOOP AT keys ASSIGNING FIELD-SYMBOL(<fs_key_sag>).
-            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                     %tky = <fs_key_sag>-%tky
-                                                     %msg = new_message_with_text(
-                                                              severity = if_abap_behv_message=>severity-error
-                                                              text     = lx_sag->get_text( ) ) ) ).
-            failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
-                                                   %tky        = <fs_key_sag>-%tky
-                                                   %fail-cause = if_abap_behv=>cause-unspecific ) ).
-            lv_sag_msg = abap_true.
-          ENDLOOP.
-      ENDTRY.
-
-      READ TABLE lt_sag_out ASSIGNING FIELD-SYMBOL(<fs_sag_out>) INDEX 1.
-
-      IF sy-subrc IS INITIAL AND <fs_sag_out>-result IS NOT INITIAL.
-        IMPORT return = lt_sag_result FROM DATA BUFFER <fs_sag_out>-result.
-
-        LOOP AT lt_sag_result ASSIGNING FIELD-SYMBOL(<fs_sag_res>).
-          READ TABLE lt_sag_id ASSIGNING <fs_sag_id>
-              WITH TABLE KEY id COMPONENTS oc = <fs_sag_res>-oc.
-
-          IF sy-subrc IS NOT INITIAL.
-            CONTINUE.
-          ENDIF.
-
+        READ TABLE <fs_sag_res>-bapiret TRANSPORTING NO FIELDS
+            WITH KEY type = 'E'.
+        lv_sag_ok = xsdbool( sy-subrc <> 0 ).
+        IF lv_sag_ok = abap_true.
           READ TABLE <fs_sag_res>-bapiret TRANSPORTING NO FIELDS
-              WITH KEY type = 'S'.
-          lv_sag_ok = xsdbool( sy-subrc = 0 ).
+              WITH KEY type = 'A'.
+          lv_sag_ok = xsdbool( sy-subrc <> 0 ).
+        ENDIF.
 
-          CLEAR lv_err_txt.
-          LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>.
-            IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
-              lv_err_txt = <fs_br>-message.
-              IF lv_err_txt IS INITIAL.
-                lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
-              ENDIF.
-              EXIT.
+        CLEAR lv_err_txt.
+        LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>.
+          IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
+            lv_err_txt = <fs_br>-message.
+            IF lv_err_txt IS INITIAL.
+              lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
             ENDIF.
-          ENDLOOP.
+            EXIT.
+          ENDIF.
+        ENDLOOP.
 
-          LOOP AT <fs_sag_id>-t_pos ASSIGNING <fs_pos>.
-            GET TIME STAMP FIELD lv_timestamp.
+        LOOP AT <fs_sag_id>-t_pos ASSIGNING <fs_pos>.
+          GET TIME STAMP FIELD lv_timestamp.
 
-            IF lv_sag_ok = abap_true.
-              APPEND VALUE #( client          = sy-mandt
-                              oc              = <fs_sag_res>-oc
-                              posicion        = <fs_pos>-posicion
-                              usuario         = cl_abap_context_info=>get_user_technical_name( )
-                              fecha_hora      = lv_timestamp
-                              precio_asn      = <fs_pos>-precioasn
-                              moneda_asn      = <fs_pos>-monedaasn
-                              accion          = '01'
-                              estado          = '06'
-                              precio_anterior = <fs_pos>-preciooc
-                              precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
+          IF lv_sag_ok = abap_true.
+            APPEND VALUE #( client          = sy-mandt
+                            oc              = <fs_sag_res>-oc
+                            posicion        = <fs_pos>-posicion
+                            usuario         = cl_abap_context_info=>get_user_technical_name( )
+                            fecha_hora      = lv_timestamp
+                            precio_asn      = <fs_pos>-precioasn
+                            moneda_asn      = <fs_pos>-monedaasn
+                            accion          = '01'
+                            estado          = '06'
+                            precio_anterior = <fs_pos>-preciooc
+                            precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
 
+            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                     %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
+                                                                         %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                     %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                         number   = 017
+                                                                         v1       = <fs_sag_res>-oc
+                                                                         v2       = <fs_pos>-posicion
+                                                                         severity = if_abap_behv_message=>severity-success ) ) ).
+          ELSE.
+            APPEND VALUE #( client     = sy-mandt
+                            oc         = <fs_sag_res>-oc
+                            posicion   = <fs_pos>-posicion
+                            usuario    = cl_abap_context_info=>get_user_technical_name( )
+                            fecha_hora = lv_timestamp ) TO lcl_buffer=>gt_log.
+
+            IF lv_err_txt IS INITIAL.
               reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                        %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
                                                                            %key-Posicion = <fs_pos>-posicion ]-%tky
                                                        %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                           number   = 017
+                                                                           number   = 016
                                                                            v1       = <fs_sag_res>-oc
                                                                            v2       = <fs_pos>-posicion
-                                                                           severity = if_abap_behv_message=>severity-success ) ) ).
+                                                                           severity = if_abap_behv_message=>severity-error ) ) ).
             ELSE.
-              APPEND VALUE #( client     = sy-mandt
-                              oc         = <fs_sag_res>-oc
-                              posicion   = <fs_pos>-posicion
-                              usuario    = cl_abap_context_info=>get_user_technical_name( )
-                              fecha_hora = lv_timestamp ) TO lcl_buffer=>gt_log.
-
-              IF lv_err_txt IS INITIAL.
-                reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                         %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
-                                                                             %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                         %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                             number   = 016
-                                                                             v1       = <fs_sag_res>-oc
-                                                                             v2       = <fs_pos>-posicion
-                                                                             severity = if_abap_behv_message=>severity-error ) ) ).
-              ELSE.
-                reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                         %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
-                                                                             %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                         %msg = new_message_with_text(
-                                                                  severity = if_abap_behv_message=>severity-error
-                                                                  text     = lv_err_txt ) ) ).
-              ENDIF.
-
-              failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
-                                                     %tky        = keys[ KEY id %key-oc       = <fs_sag_res>-oc
-                                                                                %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                     %fail-cause = if_abap_behv=>cause-unspecific ) ).
+              reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                       %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
+                                                                           %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                       %msg = new_message_with_text(
+                                                                severity = if_abap_behv_message=>severity-error
+                                                                text     = lv_err_txt ) ) ).
             ENDIF.
 
-            lv_sag_msg = abap_true.
-            CLEAR lv_timestamp.
-          ENDLOOP.
+            failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                   %tky        = keys[ KEY id %key-oc       = <fs_sag_res>-oc
+                                                                              %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                   %fail-cause = if_abap_behv=>cause-unspecific ) ).
+          ENDIF.
+
+          lv_sag_msg = abap_true.
+          CLEAR lv_timestamp.
         ENDLOOP.
-      ENDIF.
+      ENDLOOP.
 
       IF lv_sag_msg = abap_false.
         LOOP AT keys ASSIGNING FIELD-SYMBOL(<fs_key_ss>).
