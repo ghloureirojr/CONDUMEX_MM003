@@ -128,6 +128,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           lv_prev       TYPE dats,
           lv_valid_to   TYPE dats,
           lv_next_from  TYPE dats,
+          lv_before     TYPE dats,
           lv_gd_err     TYPE abap_bool,
           lv_serial     TYPE bapimeoutvalidity-serial_id,
           lv_item       TYPE bapimeoutvalidity-item_no.
@@ -165,7 +166,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     lt_cond_k = lt_cond.
 
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
-      CLEAR: ls_current, ls_new_val, ls_cond, lv_next_from, lv_serial.
+      CLEAR: ls_current, ls_new_val, ls_cond, lv_next_from, lv_before, lv_serial.
       lv_item    = |{ <fs_item>-item ALPHA = IN }|.
       lv_invoice = <fs_item>-invoice_date.
 
@@ -178,8 +179,10 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         RETURN.
       ENDIF.
 
-      lv_prev     = lv_invoice - 1.
-      lv_valid_to = last_day_of_month( lv_invoice ) - 1.
+      lv_prev     = lv_invoice.
+      lv_prev     = lv_prev - 1.
+      lv_valid_to = last_day_of_month( lv_invoice ).
+      lv_valid_to = lv_valid_to - 1.
       IF lv_valid_to < lv_invoice.
         lv_valid_to = last_day_of_month( lv_invoice ).
       ENDIF.
@@ -192,8 +195,12 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         ENDIF.
       ENDLOOP.
 
-      IF lv_next_from IS NOT INITIAL AND lv_next_from - 1 < lv_valid_to.
-        lv_valid_to = lv_next_from - 1.
+      IF lv_next_from IS NOT INITIAL.
+        lv_before = lv_next_from.
+        lv_before = lv_before - 1.
+        IF lv_before < lv_valid_to.
+          lv_valid_to = lv_before.
+        ENDIF.
       ENDIF.
 
       LOOP AT lt_val_k ASSIGNING FIELD-SYMBOL(<fs_val>) USING KEY primary_key
@@ -254,14 +261,12 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         IF <fs_item>-currency IS NOT INITIAL.
           ls_cond-currency = <fs_item>-currency.
         ENDIF.
-        ls_cond-change_id = 'U'.
         APPEND ls_cond TO lt_cond_ch.
         APPEND VALUE #( item_no    = ls_cond-item_no
                         serial_id  = ls_cond-serial_id
                         item_nox   = abap_true
                         cond_value = abap_true
-                        currency   = abap_true
-                        change_id  = abap_true ) TO lt_condx_ch.
+                        currency   = abap_true ) TO lt_condx_ch.
       ELSE.
         IF ls_current-valid_from < lv_invoice.
           ls_current-valid_to = lv_prev.
@@ -289,7 +294,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         IF <fs_item>-currency IS NOT INITIAL.
           ls_cond-currency = <fs_item>-currency.
         ENDIF.
-        ls_cond-change_id = 'I'.
         APPEND ls_cond TO lt_cond_ch.
         APPEND VALUE #( item_no    = ls_cond-item_no
                         serial_id  = ls_cond-serial_id
@@ -297,8 +301,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         item_nox   = abap_true
                         cond_type  = abap_true
                         cond_value = abap_true
-                        currency   = abap_true
-                        change_id  = abap_true ) TO lt_condx_ch.
+                        currency   = abap_true ) TO lt_condx_ch.
       ENDIF.
     ENDLOOP.
 
