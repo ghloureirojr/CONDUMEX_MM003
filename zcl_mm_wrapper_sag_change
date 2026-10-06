@@ -269,19 +269,18 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       ENDLOOP.
       lv_serial = lv_serial + 1.
 
-      IF ls_current-valid_from = lv_invoice.
-        ls_current-valid_to = lv_valid_to.
-        APPEND ls_current TO lt_val_ch.
-        APPEND VALUE #( item_no   = ls_current-item_no
-                        serial_id = ls_current-serial_id
-                        item_nox  = abap_true
-                        valid_to  = abap_true ) TO lt_valx_ch.
-
+      "Guillermo: crear periodo nuevo FechaFactura .. dia anterior al siguiente (30.10).
+      "Help SAP: para partir un periodo no enviar el resto en el mismo call; el sistema lo crea.
+      IF ls_current-valid_from = lv_invoice AND ls_current-valid_to = lv_valid_to.
         ls_cond-serial_id  = ls_current-serial_id.
         ls_cond-cond_value = <fs_item>-price.
         IF <fs_item>-currency IS NOT INITIAL.
           ls_cond-currency = <fs_item>-currency.
         ENDIF.
+        APPEND ls_current TO lt_val_ch.
+        APPEND VALUE #( item_no   = ls_current-item_no
+                        serial_id = ls_current-serial_id
+                        item_nox  = abap_true ) TO lt_valx_ch.
         APPEND ls_cond TO lt_cond_ch.
         APPEND VALUE #( item_no    = ls_cond-item_no
                         serial_id  = ls_cond-serial_id
