@@ -70,40 +70,47 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_gross_condition.
-    DATA(lv_item) = CONV bapimeoutcondition-item_no( |{ iv_item ALPHA = IN }| ).
+    DATA lv_ebelp TYPE ebelp.
 
-    LOOP AT it_cond ASSIGNING FIELD-SYMBOL(<fs_cond>) USING KEY primary_key
-         WHERE item_no   = lv_item
-           AND serial_id = iv_serial_id
-           AND cond_type = 'PB00'.
+    "Help SAP: misma clase de condicion del plan (PB00 o PBXX). PB00 primero.
+    LOOP AT it_cond ASSIGNING FIELD-SYMBOL(<fs_cond>) USING KEY primary_key.
+      lv_ebelp = <fs_cond>-item_no.
+      IF lv_ebelp <> iv_item OR <fs_cond>-serial_id <> iv_serial_id.
+        CONTINUE.
+      ENDIF.
+      IF <fs_cond>-cond_type = 'PB00' AND <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key.
+      lv_ebelp = <fs_cond>-item_no.
+      IF lv_ebelp <> iv_item OR <fs_cond>-serial_id <> iv_serial_id.
+        CONTINUE.
+      ENDIF.
+      IF <fs_cond>-cond_type = 'PBXX' AND <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key.
+      lv_ebelp = <fs_cond>-item_no.
+      IF lv_ebelp <> iv_item OR <fs_cond>-cond_type <> 'PB00'.
+        CONTINUE.
+      ENDIF.
       IF <fs_cond>-cond_value IS NOT INITIAL.
         rs_cond = <fs_cond>.
         RETURN.
       ENDIF.
     ENDLOOP.
 
-    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
-         WHERE item_no   = lv_item
-           AND serial_id = iv_serial_id
-           AND cond_type = 'PBXX'.
-      IF <fs_cond>-cond_value IS NOT INITIAL.
-        rs_cond = <fs_cond>.
-        RETURN.
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key.
+      lv_ebelp = <fs_cond>-item_no.
+      IF lv_ebelp <> iv_item OR <fs_cond>-cond_type <> 'PBXX'.
+        CONTINUE.
       ENDIF.
-    ENDLOOP.
-
-    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
-         WHERE item_no   = lv_item
-           AND cond_type = 'PB00'.
-      IF <fs_cond>-cond_value IS NOT INITIAL.
-        rs_cond = <fs_cond>.
-        RETURN.
-      ENDIF.
-    ENDLOOP.
-
-    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
-         WHERE item_no   = lv_item
-           AND cond_type = 'PBXX'.
       IF <fs_cond>-cond_value IS NOT INITIAL.
         rs_cond = <fs_cond>.
         RETURN.
@@ -131,7 +138,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           lv_before     TYPE dats,
           lv_gd_err     TYPE abap_bool,
           lv_serial     TYPE bapimeoutvalidity-serial_id,
-          lv_item       TYPE bapimeoutvalidity-item_no.
+          lv_ebelp      TYPE ebelp,
+          lt_item_err   TYPE tt_return.
 
     IF is_param-iv_nfm = abap_true.
       rt_return = change_nfm_schedule( is_param ).
@@ -142,6 +150,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         CALL FUNCTION 'BAPI_SAG_GETDETAIL'
           EXPORTING
             purchasingdocument = is_param-iv_purchasingdocument
+            item_data          = abap_true
+            condition_data     = abap_true
           TABLES
             return             = lt_return_get
             item_cond_validity = lt_val
@@ -167,7 +177,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
 
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
       CLEAR: ls_current, ls_new_val, ls_cond, lv_next_from, lv_before, lv_serial.
-      lv_item    = |{ <fs_item>-item ALPHA = IN }|.
       lv_invoice = <fs_item>-invoice_date.
 
       IF lv_invoice IS INITIAL.
@@ -187,8 +196,11 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         lv_valid_to = last_day_of_month( lv_invoice ).
       ENDIF.
 
-      LOOP AT lt_val_k ASSIGNING FIELD-SYMBOL(<fs_nxt>) USING KEY primary_key
-           WHERE item_no = lv_item.
+      LOOP AT lt_val_k ASSIGNING FIELD-SYMBOL(<fs_nxt>) USING KEY primary_key.
+        lv_ebelp = <fs_nxt>-item_no.
+        IF lv_ebelp <> <fs_item>-item.
+          CONTINUE.
+        ENDIF.
         IF <fs_nxt>-valid_from > lv_invoice
            AND ( lv_next_from IS INITIAL OR <fs_nxt>-valid_from < lv_next_from ).
           lv_next_from = <fs_nxt>-valid_from.
@@ -203,8 +215,11 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         ENDIF.
       ENDIF.
 
-      LOOP AT lt_val_k ASSIGNING FIELD-SYMBOL(<fs_val>) USING KEY primary_key
-           WHERE item_no = lv_item.
+      LOOP AT lt_val_k ASSIGNING FIELD-SYMBOL(<fs_val>) USING KEY primary_key.
+        lv_ebelp = <fs_val>-item_no.
+        IF lv_ebelp <> <fs_item>-item.
+          CONTINUE.
+        ENDIF.
         IF <fs_val>-valid_from <= lv_invoice AND <fs_val>-valid_to >= lv_invoice.
           ls_current = <fs_val>.
           EXIT.
@@ -212,9 +227,11 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       ENDLOOP.
 
       IF ls_current IS INITIAL.
-        LOOP AT lt_val_k ASSIGNING <fs_val> USING KEY primary_key
-             WHERE item_no = lv_item.
-          ls_current = <fs_val>.
+        LOOP AT lt_val_k ASSIGNING <fs_val> USING KEY primary_key.
+          lv_ebelp = <fs_val>-item_no.
+          IF lv_ebelp = <fs_item>-item.
+            ls_current = <fs_val>.
+          ENDIF.
         ENDLOOP.
       ENDIF.
 
@@ -223,8 +240,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         id         = 'ZCL_MSG_MM_003'
                         number     = '027'
                         message_v1 = is_param-iv_purchasingdocument
-                        message_v2 = <fs_item>-item ) TO rt_return.
-        RETURN.
+                        message_v2 = <fs_item>-item ) TO lt_item_err.
+        CONTINUE.
       ENDIF.
 
       ls_cond = get_gross_condition( it_cond      = lt_cond_k
@@ -236,12 +253,16 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         id         = 'ZCL_MSG_MM_003'
                         number     = '026'
                         message_v1 = is_param-iv_purchasingdocument
-                        message_v2 = <fs_item>-item ) TO rt_return.
-        RETURN.
+                        message_v2 = <fs_item>-item ) TO lt_item_err.
+        CONTINUE.
       ENDIF.
 
-      LOOP AT lt_val_k ASSIGNING <fs_val> USING KEY primary_key
-           WHERE item_no = lv_item.
+      "Help SAP: SERIAL_ID une periodo y condicion. Sin el, ME_GET_CONDITION_TO_SEARCH crea PBXX.
+      LOOP AT lt_val_k ASSIGNING <fs_val> USING KEY primary_key.
+        lv_ebelp = <fs_val>-item_no.
+        IF lv_ebelp <> <fs_item>-item.
+          CONTINUE.
+        ENDIF.
         IF <fs_val>-serial_id > lv_serial.
           lv_serial = <fs_val>-serial_id.
         ENDIF.
@@ -305,6 +326,11 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
 
+    IF lt_val_ch IS INITIAL.
+      rt_return = lt_item_err.
+      RETURN.
+    ENDIF.
+
     TRY.
         CALL FUNCTION 'BAPI_SAG_CHANGE'
           EXPORTING
@@ -331,6 +357,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
       EXPORTING
         wait = abap_true.
+
+    APPEND LINES OF lt_item_err TO rt_return.
   ENDMETHOD.
 
   METHOD change_nfm_schedule.
