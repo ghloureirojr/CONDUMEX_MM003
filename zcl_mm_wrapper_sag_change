@@ -26,7 +26,11 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
   PROTECTED SECTION.
   PRIVATE SECTION.
     TYPES: tt_sched TYPE SORTED TABLE OF bapimeoutschedule
-                    WITH NON-UNIQUE KEY item_no.
+                    WITH NON-UNIQUE KEY item_no,
+           tt_validity TYPE SORTED TABLE OF bapimeoutvalidity
+                       WITH NON-UNIQUE KEY item_no valid_from,
+           tt_cond     TYPE SORTED TABLE OF bapimeoutcondition
+                       WITH NON-UNIQUE KEY item_no serial_id cond_type.
 
     CLASS-METHODS last_day_of_month
       IMPORTING iv_date        TYPE dats
@@ -35,6 +39,12 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
     CLASS-METHODS append_exc
       IMPORTING io_exc           TYPE REF TO cx_root
       RETURNING VALUE(rs_return) TYPE bapiret2.
+
+    CLASS-METHODS get_gross_condition
+      IMPORTING it_cond        TYPE tt_cond
+                iv_item        TYPE ebelp
+                iv_serial_id   TYPE bapimeoutcondition-serial_id
+      RETURNING VALUE(rs_cond) TYPE bapimeoutcondition.
 
     CLASS-METHODS change_nfm_schedule
       IMPORTING is_param         TYPE ty_param
@@ -59,23 +69,103 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     rv_date = lv_first - 1.
   ENDMETHOD.
 
-  METHOD call_bapi_change.
-    DATA: lt_val_ch    TYPE STANDARD TABLE OF bapimeoutvalidity,
-          lt_valx_ch   TYPE STANDARD TABLE OF bapimeoutvalidityx,
-          lt_cond_ch   TYPE STANDARD TABLE OF bapimeoutcondition,
-          lt_condx_ch  TYPE STANDARD TABLE OF bapimeoutconditionx,
-          lv_invoice   TYPE dats,
-          lv_valid_to  TYPE dats,
-          lv_item      TYPE bapimeoutvalidity-item_no,
-          lv_price_unt TYPE epein.
+  METHOD get_gross_condition.
+    DATA(lv_item) = CONV bapimeoutcondition-item_no( |{ iv_item ALPHA = IN }| ).
 
-    "NFM: no tocar PB00/ZNF6; el estandar recalcula /NFM/TORDERPOS
+    LOOP AT it_cond ASSIGNING FIELD-SYMBOL(<fs_cond>) USING KEY primary_key
+         WHERE item_no   = lv_item
+           AND serial_id = iv_serial_id
+           AND cond_type = 'PB00'.
+      IF <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
+         WHERE item_no   = lv_item
+           AND serial_id = iv_serial_id
+           AND cond_type = 'PBXX'.
+      IF <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
+         WHERE item_no   = lv_item
+           AND cond_type = 'PB00'.
+      IF <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT it_cond ASSIGNING <fs_cond> USING KEY primary_key
+         WHERE item_no   = lv_item
+           AND cond_type = 'PBXX'.
+      IF <fs_cond>-cond_value IS NOT INITIAL.
+        rs_cond = <fs_cond>.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD call_bapi_change.
+    DATA: lt_return_get TYPE tt_return,
+          lt_val        TYPE STANDARD TABLE OF bapimeoutvalidity,
+          lt_cond       TYPE STANDARD TABLE OF bapimeoutcondition,
+          lt_val_k      TYPE tt_validity,
+          lt_cond_k     TYPE tt_cond,
+          lt_val_ch     TYPE STANDARD TABLE OF bapimeoutvalidity,
+          lt_valx_ch    TYPE STANDARD TABLE OF bapimeoutvalidityx,
+          lt_cond_ch    TYPE STANDARD TABLE OF bapimeoutcondition,
+          lt_condx_ch   TYPE STANDARD TABLE OF bapimeoutconditionx,
+          ls_current    TYPE bapimeoutvalidity,
+          ls_new_val    TYPE bapimeoutvalidity,
+          ls_cond       TYPE bapimeoutcondition,
+          lv_invoice    TYPE dats,
+          lv_prev       TYPE dats,
+          lv_valid_to   TYPE dats,
+          lv_next_from  TYPE dats,
+          lv_gd_err     TYPE abap_bool,
+          lv_serial     TYPE bapimeoutvalidity-serial_id,
+          lv_item       TYPE bapimeoutvalidity-item_no.
+
     IF is_param-iv_nfm = abap_true.
       rt_return = change_nfm_schedule( is_param ).
       RETURN.
     ENDIF.
 
+    TRY.
+        CALL FUNCTION 'BAPI_SAG_GETDETAIL'
+          EXPORTING
+            purchasingdocument = is_param-iv_purchasingdocument
+          TABLES
+            return             = lt_return_get
+            item_cond_validity = lt_val
+            item_condition     = lt_cond.
+      CATCH cx_root INTO DATA(lx_gd).
+        APPEND append_exc( lx_gd ) TO rt_return.
+        RETURN.
+    ENDTRY.
+
+    CLEAR lv_gd_err.
+    LOOP AT lt_return_get ASSIGNING FIELD-SYMBOL(<fs_get>).
+      IF <fs_get>-type = 'E' OR <fs_get>-type = 'A'.
+        APPEND <fs_get> TO rt_return.
+        lv_gd_err = abap_true.
+      ENDIF.
+    ENDLOOP.
+    IF lv_gd_err = abap_true.
+      RETURN.
+    ENDIF.
+
+    lt_val_k  = lt_val.
+    lt_cond_k = lt_cond.
+
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
+      CLEAR: ls_current, ls_new_val, ls_cond, lv_next_from, lv_serial.
       lv_item    = |{ <fs_item>-item ALPHA = IN }|.
       lv_invoice = <fs_item>-invoice_date.
 
@@ -88,42 +178,128 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         RETURN.
       ENDIF.
 
-      lv_valid_to = last_day_of_month( lv_invoice ).
-
-      IF <fs_item>-price_unit IS INITIAL.
-        lv_price_unt = 1.
-      ELSE.
-        lv_price_unt = <fs_item>-price_unit.
+      lv_prev     = lv_invoice - 1.
+      lv_valid_to = last_day_of_month( lv_invoice ) - 1.
+      IF lv_valid_to < lv_invoice.
+        lv_valid_to = last_day_of_month( lv_invoice ).
       ENDIF.
 
-      APPEND VALUE #( item_no    = lv_item
-                      valid_from = lv_invoice
-                      valid_to   = lv_valid_to ) TO lt_val_ch.
+      LOOP AT lt_val_k ASSIGNING FIELD-SYMBOL(<fs_nxt>) USING KEY primary_key
+           WHERE item_no = lv_item.
+        IF <fs_nxt>-valid_from > lv_invoice
+           AND ( lv_next_from IS INITIAL OR <fs_nxt>-valid_from < lv_next_from ).
+          lv_next_from = <fs_nxt>-valid_from.
+        ENDIF.
+      ENDLOOP.
 
-      APPEND VALUE #( item_no    = lv_item
-                      item_nox   = abap_true
-                      valid_from = abap_true
-                      valid_to   = abap_true ) TO lt_valx_ch.
+      IF lv_next_from IS NOT INITIAL AND lv_next_from - 1 < lv_valid_to.
+        lv_valid_to = lv_next_from - 1.
+      ENDIF.
 
-      APPEND VALUE #( item_no     = lv_item
-                      cond_type   = 'PB00'
-                      cond_value  = <fs_item>-price
-                      currency    = <fs_item>-currency
-                      cond_p_unt  = lv_price_unt
-                      cond_unit   = <fs_item>-unit
-                      numerator   = 1
-                      denominator = 1
-                      change_id   = 'I' ) TO lt_cond_ch.
+      LOOP AT lt_val_k ASSIGNING FIELD-SYMBOL(<fs_val>) USING KEY primary_key
+           WHERE item_no = lv_item.
+        IF <fs_val>-valid_from <= lv_invoice AND <fs_val>-valid_to >= lv_invoice.
+          ls_current = <fs_val>.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
 
-      APPEND VALUE #( item_no     = lv_item
-                      item_nox    = abap_true
-                      cond_type   = abap_true
-                      cond_value  = abap_true
-                      currency    = abap_true
-                      cond_p_unt  = abap_true
-                      cond_unit   = abap_true
-                      numerator   = abap_true
-                      denominator = abap_true ) TO lt_condx_ch.
+      IF ls_current IS INITIAL.
+        LOOP AT lt_val_k ASSIGNING <fs_val> USING KEY primary_key
+             WHERE item_no = lv_item.
+          ls_current = <fs_val>.
+        ENDLOOP.
+      ENDIF.
+
+      IF ls_current IS INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '027'
+                        message_v1 = is_param-iv_purchasingdocument
+                        message_v2 = <fs_item>-item ) TO rt_return.
+        RETURN.
+      ENDIF.
+
+      ls_cond = get_gross_condition( it_cond      = lt_cond_k
+                                     iv_item      = <fs_item>-item
+                                     iv_serial_id = ls_current-serial_id ).
+
+      IF ls_cond IS INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '026'
+                        message_v1 = is_param-iv_purchasingdocument
+                        message_v2 = <fs_item>-item ) TO rt_return.
+        RETURN.
+      ENDIF.
+
+      LOOP AT lt_val_k ASSIGNING <fs_val> USING KEY primary_key
+           WHERE item_no = lv_item.
+        IF <fs_val>-serial_id > lv_serial.
+          lv_serial = <fs_val>-serial_id.
+        ENDIF.
+      ENDLOOP.
+      lv_serial = lv_serial + 1.
+
+      IF ls_current-valid_from = lv_invoice.
+        ls_current-valid_to = lv_valid_to.
+        APPEND ls_current TO lt_val_ch.
+        APPEND VALUE #( item_no   = ls_current-item_no
+                        serial_id = ls_current-serial_id
+                        item_nox  = abap_true
+                        valid_to  = abap_true ) TO lt_valx_ch.
+
+        ls_cond-serial_id  = ls_current-serial_id.
+        ls_cond-cond_value = <fs_item>-price.
+        IF <fs_item>-currency IS NOT INITIAL.
+          ls_cond-currency = <fs_item>-currency.
+        ENDIF.
+        ls_cond-change_id = 'U'.
+        APPEND ls_cond TO lt_cond_ch.
+        APPEND VALUE #( item_no    = ls_cond-item_no
+                        serial_id  = ls_cond-serial_id
+                        item_nox   = abap_true
+                        cond_value = abap_true
+                        currency   = abap_true
+                        change_id  = abap_true ) TO lt_condx_ch.
+      ELSE.
+        IF ls_current-valid_from < lv_invoice.
+          ls_current-valid_to = lv_prev.
+          APPEND ls_current TO lt_val_ch.
+          APPEND VALUE #( item_no   = ls_current-item_no
+                          serial_id = ls_current-serial_id
+                          item_nox  = abap_true
+                          valid_to  = abap_true ) TO lt_valx_ch.
+        ENDIF.
+
+        ls_new_val = ls_current.
+        ls_new_val-serial_id  = lv_serial.
+        ls_new_val-valid_from = lv_invoice.
+        ls_new_val-valid_to   = lv_valid_to.
+        APPEND ls_new_val TO lt_val_ch.
+        APPEND VALUE #( item_no    = ls_new_val-item_no
+                        serial_id  = ls_new_val-serial_id
+                        item_nox   = abap_true
+                        valid_from = abap_true
+                        valid_to   = abap_true ) TO lt_valx_ch.
+
+        ls_cond-serial_id  = lv_serial.
+        ls_cond-cond_count = '01'.
+        ls_cond-cond_value = <fs_item>-price.
+        IF <fs_item>-currency IS NOT INITIAL.
+          ls_cond-currency = <fs_item>-currency.
+        ENDIF.
+        ls_cond-change_id = 'I'.
+        APPEND ls_cond TO lt_cond_ch.
+        APPEND VALUE #( item_no    = ls_cond-item_no
+                        serial_id  = ls_cond-serial_id
+                        cond_count = ls_cond-cond_count
+                        item_nox   = abap_true
+                        cond_type  = abap_true
+                        cond_value = abap_true
+                        currency   = abap_true
+                        change_id  = abap_true ) TO lt_condx_ch.
+      ENDIF.
     ENDLOOP.
 
     TRY.
