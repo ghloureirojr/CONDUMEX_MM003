@@ -139,7 +139,12 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           lv_gd_err     TYPE abap_bool,
           lv_serial     TYPE bapimeoutvalidity-serial_id,
           lv_ebelp      TYPE ebelp,
-          lt_item_err   TYPE tt_return.
+          lv_after      TYPE dats,
+          lv_bapi_err   TYPE abap_bool,
+          ls_left       TYPE bapimeoutvalidity,
+          lt_bapi_ret   TYPE tt_return,
+          lt_item_err   TYPE tt_return,
+          lx_ch         TYPE REF TO cx_root.
 
     IF is_param-iv_nfm = abap_true.
       rt_return = change_nfm_schedule( is_param ).
@@ -176,7 +181,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     lt_cond_k = lt_cond.
 
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
-      CLEAR: ls_current, ls_new_val, ls_cond, lv_next_from, lv_before, lv_serial.
+      CLEAR: ls_current, ls_new_val, ls_cond, ls_left, lv_next_from, lv_before, lv_serial, lv_after,
+             lv_bapi_err, lt_val_ch, lt_valx_ch, lt_cond_ch, lt_condx_ch, lt_bapi_ret.
       lv_invoice = <fs_item>-invoice_date.
 
       IF lv_invoice IS INITIAL.
@@ -270,7 +276,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       lv_serial = lv_serial + 1.
 
       "Guillermo: crear periodo nuevo FechaFactura .. dia anterior al siguiente (30.10).
-      "Help SAP: para partir un periodo no enviar el resto en el mismo call; el sistema lo crea.
+      "Help SAP: periodos ordenados, sin overlap; el resto se desplaza a lv_valid_to + 1.
       IF ls_current-valid_from = lv_invoice AND ls_current-valid_to = lv_valid_to.
         ls_cond-serial_id  = ls_current-serial_id.
         ls_cond-cond_value = <fs_item>-price.
@@ -295,6 +301,13 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                           serial_id = ls_current-serial_id
                           item_nox  = abap_true
                           valid_to  = abap_true ) TO lt_valx_ch.
+        ELSEIF ls_current-valid_from = lv_invoice.
+          lv_after = lv_valid_to.
+          lv_after = lv_after + 1.
+          IF lv_after <= ls_current-valid_to.
+            ls_left = ls_current.
+            ls_left-valid_from = lv_after.
+          ENDIF.
         ENDIF.
 
         ls_new_val = ls_current.
@@ -322,40 +335,52 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         cond_type  = abap_true
                         cond_value = abap_true
                         currency   = abap_true ) TO lt_condx_ch.
+
+        IF ls_left IS NOT INITIAL.
+          APPEND ls_left TO lt_val_ch.
+          APPEND VALUE #( item_no    = ls_left-item_no
+                          serial_id  = ls_left-serial_id
+                          item_nox   = abap_true
+                          valid_from = abap_true
+                          valid_to   = abap_true ) TO lt_valx_ch.
+        ENDIF.
       ENDIF.
-    ENDLOOP.
 
-    IF lt_val_ch IS INITIAL.
-      rt_return = lt_item_err.
-      RETURN.
-    ENDIF.
-
-    TRY.
-        CALL FUNCTION 'BAPI_SAG_CHANGE'
-          EXPORTING
-            purchasingdocument  = is_param-iv_purchasingdocument
-          TABLES
-            return              = rt_return
-            item_cond_validity  = lt_val_ch
-            item_cond_validityx = lt_valx_ch
-            item_condition      = lt_cond_ch
-            item_conditionx     = lt_condx_ch.
-      CATCH cx_root INTO DATA(lx_ch).
-        APPEND append_exc( lx_ch ) TO rt_return.
-        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
-        RETURN.
-    ENDTRY.
-
-    LOOP AT rt_return ASSIGNING FIELD-SYMBOL(<fs_ret>).
-      IF <fs_ret>-type = 'E' OR <fs_ret>-type = 'A'.
-        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
-        RETURN.
+      IF lt_val_ch IS INITIAL.
+        CONTINUE.
       ENDIF.
-    ENDLOOP.
 
-    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
-      EXPORTING
-        wait = abap_true.
+      TRY.
+          CALL FUNCTION 'BAPI_SAG_CHANGE'
+            EXPORTING
+              purchasingdocument  = is_param-iv_purchasingdocument
+            TABLES
+              return              = lt_bapi_ret
+              item_cond_validity  = lt_val_ch
+              item_cond_validityx = lt_valx_ch
+              item_condition      = lt_cond_ch
+              item_conditionx     = lt_condx_ch.
+        CATCH cx_root INTO lx_ch.
+          APPEND append_exc( lx_ch ) TO rt_return.
+          CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+          CONTINUE.
+      ENDTRY.
+
+      LOOP AT lt_bapi_ret ASSIGNING FIELD-SYMBOL(<fs_ret>).
+        APPEND <fs_ret> TO rt_return.
+        IF <fs_ret>-type = 'E' OR <fs_ret>-type = 'A'.
+          lv_bapi_err = abap_true.
+        ENDIF.
+      ENDLOOP.
+      IF lv_bapi_err = abap_true.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+        CONTINUE.
+      ENDIF.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+    ENDLOOP.
 
     APPEND LINES OF lt_item_err TO rt_return.
   ENDMETHOD.
