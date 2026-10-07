@@ -999,18 +999,27 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             CONTINUE.
           ENDIF.
 
-          READ TABLE <fs_sag_res>-bapiret TRANSPORTING NO FIELDS
-              WITH KEY type = 'E'.
-          lv_sag_ok = xsdbool( sy-subrc <> 0 ).
-          IF lv_sag_ok = abap_true.
-            READ TABLE <fs_sag_res>-bapiret TRANSPORTING NO FIELDS
-                WITH KEY type = 'A'.
-            lv_sag_ok = xsdbool( sy-subrc <> 0 ).
-          ENDIF.
+          LOOP AT <fs_sag_id>-t_pos ASSIGNING <fs_pos>.
+            " ROW = posicion del item; ROW = 0 aplica a todo el documento
+            DATA(lv_row) = CONV i( <fs_pos>-posicion ).
 
-          CLEAR lv_err_txt.
-          LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>.
-            IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
+            LOOP AT <fs_sag_res>-bapiret TRANSPORTING NO FIELDS
+                WHERE ( row = 0 OR row = lv_row )
+                  AND ( type = 'E' OR type = 'A' ).
+              EXIT.
+            ENDLOOP.
+            lv_sag_ok = xsdbool( sy-subrc <> 0 ).
+            IF lv_sag_ok = abap_true.
+              READ TABLE <fs_sag_res>-bapiret TRANSPORTING NO FIELDS
+                  WITH KEY type = 'S'
+                           row  = lv_row.
+              lv_sag_ok = xsdbool( sy-subrc = 0 ).
+            ENDIF.
+
+            CLEAR lv_err_txt.
+            LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>
+                WHERE ( row = 0 OR row = lv_row )
+                  AND ( type = 'E' OR type = 'A' ).
               IF <fs_br>-id = 'BAPI' AND <fs_br>-number = '003'.
                 CONTINUE.
               ENDIF.
@@ -1019,18 +1028,16 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
               ENDIF.
               EXIT.
-            ENDIF.
-          ENDLOOP.
-          IF lv_err_txt IS INITIAL.
-            LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>.
-              IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
+            ENDLOOP.
+            IF lv_err_txt IS INITIAL.
+              LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>
+                  WHERE ( row = 0 OR row = lv_row )
+                    AND ( type = 'E' OR type = 'A' ).
                 lv_err_txt = <fs_br>-message.
                 EXIT.
-              ENDIF.
-            ENDLOOP.
-          ENDIF.
+              ENDLOOP.
+            ENDIF.
 
-          LOOP AT <fs_sag_id>-t_pos ASSIGNING <fs_pos>.
             GET TIME STAMP FIELD lv_timestamp.
 
             IF lv_sag_ok = abap_true.
