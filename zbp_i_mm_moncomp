@@ -497,6 +497,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           lv_run_bapi   TYPE abap_bool,
           lv_run_sag    TYPE abap_bool,
           lv_sag_ok     TYPE abap_bool,
+          lv_pos_err    TYPE abap_bool,
+          lv_has_s      TYPE abap_bool,
+          lv_row        TYPE bapiret2-row,
           lv_bapi_msg   TYPE abap_bool,
           lv_sag_msg    TYPE abap_bool,
           lv_err_txt    TYPE string,
@@ -581,33 +584,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                                                        v1       = <fs_moncomp>-oc
                                                                        v2       = <fs_moncomp>-Posicion
                                                                        severity = if_abap_behv_message=>severity-error ) ) ).
-          CLEAR lv_timestamp.
-          CONTINUE.
-        ENDIF.
-
-        IF <fs_moncomp>-IsNfm = 'X'.
-          READ TABLE lt_change_pos ASSIGNING <fs_change_pos>
-              WITH KEY iv_purchaseorder = <fs_moncomp>-oc.
-
-          IF sy-subrc IS NOT INITIAL.
-            APPEND VALUE #( iv_purchaseorder       = <fs_moncomp>-oc
-                            is_poheader-po_number  = <fs_moncomp>-oc
-                            is_poheaderx-po_number = abap_true )
-                   TO lt_change_pos ASSIGNING <fs_change_pos>.
-          ENDIF.
-
-          APPEND VALUE #( po_item      = <fs_moncomp>-Posicion
-                          invoice_date = <fs_moncomp>-FechaFactura ) TO <fs_change_pos>-t_poitem.
-
-          APPEND VALUE #( po_item  = <fs_moncomp>-Posicion
-                          po_itemx = abap_true ) TO <fs_change_pos>-t_poitemx.
-
-          APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
-                          precioOC  = <fs_moncomp>-PrecioOC
-                          precioASN = <fs_moncomp>-PrecioASN
-                          monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
-
-          lv_run_bapi = abap_true.
           CLEAR lv_timestamp.
           CONTINUE.
         ENDIF.
@@ -1000,45 +976,29 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           ENDIF.
 
           LOOP AT <fs_sag_id>-t_pos ASSIGNING <fs_pos>.
-            " ROW = posicion del item; ROW = 0 aplica a todo el documento
-            DATA(lv_row) = CONV i( <fs_pos>-posicion ).
-
-            LOOP AT <fs_sag_res>-bapiret TRANSPORTING NO FIELDS
-                WHERE ( row = 0 OR row = lv_row )
-                  AND ( type = 'E' OR type = 'A' ).
-              EXIT.
-            ENDLOOP.
-            lv_sag_ok = xsdbool( sy-subrc <> 0 ).
-            IF lv_sag_ok = abap_true.
-              READ TABLE <fs_sag_res>-bapiret TRANSPORTING NO FIELDS
-                  WITH KEY type = 'S'
-                           row  = lv_row.
-              lv_sag_ok = xsdbool( sy-subrc = 0 ).
-            ENDIF.
-
-            CLEAR lv_err_txt.
-            LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>
-                WHERE ( row = 0 OR row = lv_row )
-                  AND ( type = 'E' OR type = 'A' ).
-              IF <fs_br>-id = 'BAPI' AND <fs_br>-number = '003'.
-                CONTINUE.
-              ENDIF.
-              lv_err_txt = <fs_br>-message.
-              IF lv_err_txt IS INITIAL.
-                lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
-              ENDIF.
-              EXIT.
-            ENDLOOP.
-            IF lv_err_txt IS INITIAL.
-              LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>
-                  WHERE ( row = 0 OR row = lv_row )
-                    AND ( type = 'E' OR type = 'A' ).
-                lv_err_txt = <fs_br>-message.
-                EXIT.
-              ENDLOOP.
-            ENDIF.
-
             GET TIME STAMP FIELD lv_timestamp.
+
+            lv_row = <fs_pos>-posicion.
+            CLEAR: lv_err_txt, lv_pos_err, lv_has_s.
+
+            LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>.
+              IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
+                IF <fs_br>-row IS NOT INITIAL AND <fs_br>-row <> lv_row.
+                  CONTINUE.
+                ENDIF.
+                IF lv_pos_err = abap_false.
+                  lv_pos_err = abap_true.
+                  lv_err_txt = <fs_br>-message.
+                  IF lv_err_txt IS INITIAL.
+                    lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
+                  ENDIF.
+                ENDIF.
+              ELSEIF <fs_br>-type = 'S' AND <fs_br>-row = lv_row.
+                lv_has_s = abap_true.
+              ENDIF.
+            ENDLOOP.
+
+            lv_sag_ok = xsdbool( lv_pos_err = abap_false AND lv_has_s = abap_true ).
 
             IF lv_sag_ok = abap_true.
               APPEND VALUE #( client          = sy-mandt
