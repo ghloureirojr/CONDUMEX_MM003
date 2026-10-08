@@ -275,7 +275,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       "Help SAP: periodos ordenados, sin overlap; el resto se desplaza a lv_valid_to + 1.
       IF ls_current-valid_from = lv_invoice AND ls_current-valid_to = lv_valid_to.
         ls_cond-serial_id  = ls_current-serial_id.
-        ls_cond-change_id  = 'U'.
         ls_cond-cond_value = <fs_item>-price.
         IF <fs_item>-currency IS NOT INITIAL.
           ls_cond-currency = <fs_item>-currency.
@@ -288,7 +287,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         APPEND VALUE #( item_no    = ls_cond-item_no
                         serial_id  = ls_cond-serial_id
                         item_nox   = abap_true
-                        change_id  = abap_true
                         cond_value = abap_true
                         currency   = abap_true ) TO lt_condx_ch.
       ELSE.
@@ -321,7 +319,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
 
         ls_cond-serial_id  = lv_serial.
         ls_cond-cond_count = '01'.
-        ls_cond-change_id  = 'I'.
         ls_cond-cond_value = <fs_item>-price.
         IF <fs_item>-currency IS NOT INITIAL.
           ls_cond-currency = <fs_item>-currency.
@@ -331,7 +328,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         serial_id  = ls_cond-serial_id
                         cond_count = ls_cond-cond_count
                         item_nox   = abap_true
-                        change_id  = abap_true
                         cond_type  = abap_true
                         cond_value = abap_true
                         currency   = abap_true ) TO lt_condx_ch.
