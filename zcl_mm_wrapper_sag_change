@@ -141,6 +141,14 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           lv_row        TYPE bapiret2-row,
           lv_ebelp      TYPE ebelp,
           lv_after      TYPE dats,
+          lv_new_from   TYPE dats,
+          lv_new_prev   TYPE dats,
+          lv_orig_to    TYPE dats,
+          lv_price_to   TYPE dats,
+          lv_tail_from  TYPE dats,
+          lv_chg_to     TYPE abap_bool,
+          lv_serial_tail TYPE bapimeoutvalidity-serial_id,
+          ls_cond_old   TYPE bapimeoutcondition,
           lv_bapi_err   TYPE abap_bool,
           ls_left       TYPE bapimeoutvalidity,
           lt_bapi_ret   TYPE tt_return,
@@ -183,6 +191,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
 
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
       CLEAR: ls_current, ls_new_val, ls_cond, ls_left, lv_next_from, lv_before, lv_serial, lv_after,
+             lv_new_from, lv_new_prev, lv_orig_to, lv_price_to, lv_tail_from, lv_chg_to,
+             lv_serial_tail, ls_cond_old,
              lv_bapi_err, lt_val_ch, lt_valx_ch, lt_cond_ch, lt_condx_ch, lt_bapi_ret.
       lv_invoice = <fs_item>-invoice_date.
       lv_row     = <fs_item>-item.
@@ -269,76 +279,155 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       ENDIF.
 
       "SERIAL_ID temporario por posicion. MAX+1 reusaba un KNUMH de la otra posicion.
-      lv_serial = |99999{ <fs_item>-item }|.
+      "99998 fica para o rabo, para nao repetir a serial do periodo novo na mesma chamada.
+      lv_serial      = |99999{ <fs_item>-item }|.
+      lv_serial_tail = |99998{ <fs_item>-item }|.
 
-      "Guillermo: crear periodo nuevo FechaFactura .. dia anterior al siguiente (30.10).
-      "Help SAP: periodos ordenados, sin overlap; el resto se desplaza a lv_valid_to + 1.
-      IF ls_current-valid_from = lv_invoice AND ls_current-valid_to = lv_valid_to.
-        ls_cond-serial_id  = ls_current-serial_id.
-        ls_cond-cond_value = <fs_item>-price.
-        IF <fs_item>-currency IS NOT INITIAL.
-          ls_cond-currency = <fs_item>-currency.
+      "Guillermo: precio nuevo desde FechaFactura hasta el dia anterior al siguiente (30.10).
+      "CL_API_MASTER_CONDITION_MM=>PROCESS (ME 816 + 06 170): rejeita KONH novo com
+      "KDATB < sy-datum e rejeita alterar VALID_FROM de uma serial existente.
+      ls_cond_old = ls_cond.
+      lv_orig_to  = ls_current-valid_to.
+
+      IF ls_current-valid_from = lv_invoice.
+        "O periodo ja comeca na data da fatura. Atualiza essa serial (preco e valid_to).
+        "O preco novo vale desde 01.10 sem criar KDATB no passado.
+        lv_price_to = lv_valid_to.
+        lv_tail_from = lv_valid_to.
+        lv_tail_from = lv_tail_from + 1.
+
+        IF lv_orig_to > lv_valid_to AND lv_tail_from < sy-datum AND lv_orig_to >= sy-datum.
+          lv_price_to  = sy-datum.
+          lv_price_to  = lv_price_to - 1.
+          lv_tail_from = sy-datum.
+        ELSEIF lv_orig_to > lv_valid_to AND lv_tail_from < sy-datum.
+          CLEAR lv_tail_from.
         ENDIF.
-        APPEND ls_current TO lt_val_ch.
-        APPEND VALUE #( item_no   = ls_current-item_no
-                        serial_id = ls_current-serial_id
-                        item_nox  = abap_true ) TO lt_valx_ch.
-        APPEND ls_cond TO lt_cond_ch.
-        APPEND VALUE #( item_no    = ls_cond-item_no
-                        serial_id  = ls_cond-serial_id
-                        item_nox   = abap_true
-                        cond_value = abap_true
-                        currency   = abap_true ) TO lt_condx_ch.
-      ELSE.
-        IF ls_current-valid_from < lv_invoice.
-          ls_current-valid_to = lv_prev.
+
+        IF lv_price_to < ls_current-valid_from.
+          CLEAR lt_val_ch.
+        ELSE.
+          ls_cond-serial_id  = ls_current-serial_id.
+          ls_cond-cond_value = <fs_item>-price.
+          IF <fs_item>-currency IS NOT INITIAL.
+            ls_cond-currency = <fs_item>-currency.
+          ENDIF.
+
+          IF lv_orig_to <> lv_price_to.
+            ls_current-valid_to = lv_price_to.
+            lv_chg_to = abap_true.
+          ENDIF.
           APPEND ls_current TO lt_val_ch.
           APPEND VALUE #( item_no   = ls_current-item_no
                           serial_id = ls_current-serial_id
                           item_nox  = abap_true
-                          valid_to  = abap_true ) TO lt_valx_ch.
-        ELSEIF ls_current-valid_from = lv_invoice.
-          lv_after = lv_valid_to.
-          lv_after = lv_after + 1.
-          IF lv_after <= ls_current-valid_to.
+                          valid_to  = lv_chg_to ) TO lt_valx_ch.
+          APPEND ls_cond TO lt_cond_ch.
+          APPEND VALUE #( item_no    = ls_cond-item_no
+                          serial_id  = ls_cond-serial_id
+                          item_nox   = abap_true
+                          cond_value = abap_true
+                          currency   = abap_true ) TO lt_condx_ch.
+
+          IF lv_tail_from IS NOT INITIAL AND lv_tail_from <= lv_orig_to AND lv_tail_from > lv_price_to.
             ls_left = ls_current.
-            ls_left-valid_from = lv_after.
+            ls_left-serial_id  = lv_serial_tail.
+            ls_left-valid_from = lv_tail_from.
+            ls_left-valid_to   = lv_orig_to.
+            APPEND ls_left TO lt_val_ch.
+            APPEND VALUE #( item_no    = ls_left-item_no
+                            serial_id  = ls_left-serial_id
+                            item_nox   = abap_true
+                            valid_from = abap_true
+                            valid_to   = abap_true ) TO lt_valx_ch.
+
+            ls_cond_old-serial_id  = lv_serial_tail.
+            ls_cond_old-cond_count = '01'.
+            APPEND ls_cond_old TO lt_cond_ch.
+            APPEND VALUE #( item_no    = ls_cond_old-item_no
+                            serial_id  = ls_cond_old-serial_id
+                            cond_count = ls_cond_old-cond_count
+                            item_nox   = abap_true
+                            cond_type  = abap_true
+                            cond_value = abap_true
+                            currency   = abap_true ) TO lt_condx_ch.
           ENDIF.
         ENDIF.
-
-        ls_new_val = ls_current.
-        ls_new_val-serial_id  = lv_serial.
-        ls_new_val-valid_from = lv_invoice.
-        ls_new_val-valid_to   = lv_valid_to.
-        APPEND ls_new_val TO lt_val_ch.
-        APPEND VALUE #( item_no    = ls_new_val-item_no
-                        serial_id  = ls_new_val-serial_id
-                        item_nox   = abap_true
-                        valid_from = abap_true
-                        valid_to   = abap_true ) TO lt_valx_ch.
-
-        ls_cond-serial_id  = lv_serial.
-        ls_cond-cond_count = '01'.
-        ls_cond-cond_value = <fs_item>-price.
-        IF <fs_item>-currency IS NOT INITIAL.
-          ls_cond-currency = <fs_item>-currency.
+      ELSE.
+        "Periodo atual comeca antes da fatura. KDATB novo nao pode ser anterior a hoje.
+        lv_new_from = lv_invoice.
+        IF lv_new_from < sy-datum.
+          lv_new_from = sy-datum.
         ENDIF.
-        APPEND ls_cond TO lt_cond_ch.
-        APPEND VALUE #( item_no    = ls_cond-item_no
-                        serial_id  = ls_cond-serial_id
-                        cond_count = ls_cond-cond_count
-                        item_nox   = abap_true
-                        cond_type  = abap_true
-                        cond_value = abap_true
-                        currency   = abap_true ) TO lt_condx_ch.
+        lv_new_prev = lv_new_from.
+        lv_new_prev = lv_new_prev - 1.
 
-        IF ls_left IS NOT INITIAL.
-          APPEND ls_left TO lt_val_ch.
-          APPEND VALUE #( item_no    = ls_left-item_no
-                          serial_id  = ls_left-serial_id
+        IF lv_new_from > lv_valid_to.
+          CLEAR lt_val_ch.
+        ELSE.
+          IF ls_current-valid_from < lv_new_from AND ls_current-valid_to >= lv_new_from.
+            ls_current-valid_to = lv_new_prev.
+            APPEND ls_current TO lt_val_ch.
+            APPEND VALUE #( item_no   = ls_current-item_no
+                            serial_id = ls_current-serial_id
+                            item_nox  = abap_true
+                            valid_to  = abap_true ) TO lt_valx_ch.
+          ENDIF.
+
+          ls_new_val = ls_current.
+          ls_new_val-serial_id  = lv_serial.
+          ls_new_val-valid_from = lv_new_from.
+          ls_new_val-valid_to   = lv_valid_to.
+          APPEND ls_new_val TO lt_val_ch.
+          APPEND VALUE #( item_no    = ls_new_val-item_no
+                          serial_id  = ls_new_val-serial_id
                           item_nox   = abap_true
                           valid_from = abap_true
                           valid_to   = abap_true ) TO lt_valx_ch.
+
+          ls_cond-serial_id  = lv_serial.
+          ls_cond-cond_count = '01'.
+          ls_cond-cond_value = <fs_item>-price.
+          IF <fs_item>-currency IS NOT INITIAL.
+            ls_cond-currency = <fs_item>-currency.
+          ENDIF.
+          APPEND ls_cond TO lt_cond_ch.
+          APPEND VALUE #( item_no    = ls_cond-item_no
+                          serial_id  = ls_cond-serial_id
+                          cond_count = ls_cond-cond_count
+                          item_nox   = abap_true
+                          cond_type  = abap_true
+                          cond_value = abap_true
+                          currency   = abap_true ) TO lt_condx_ch.
+
+          lv_tail_from = lv_valid_to.
+          lv_tail_from = lv_tail_from + 1.
+          IF lv_tail_from < sy-datum.
+            lv_tail_from = sy-datum.
+          ENDIF.
+          IF lv_tail_from <= lv_orig_to AND lv_tail_from > lv_valid_to.
+            ls_left = ls_current.
+            ls_left-serial_id  = lv_serial_tail.
+            ls_left-valid_from = lv_tail_from.
+            ls_left-valid_to   = lv_orig_to.
+            APPEND ls_left TO lt_val_ch.
+            APPEND VALUE #( item_no    = ls_left-item_no
+                            serial_id  = ls_left-serial_id
+                            item_nox   = abap_true
+                            valid_from = abap_true
+                            valid_to   = abap_true ) TO lt_valx_ch.
+
+            ls_cond_old-serial_id  = lv_serial_tail.
+            ls_cond_old-cond_count = '01'.
+            APPEND ls_cond_old TO lt_cond_ch.
+            APPEND VALUE #( item_no    = ls_cond_old-item_no
+                            serial_id  = ls_cond_old-serial_id
+                            cond_count = ls_cond_old-cond_count
+                            item_nox   = abap_true
+                            cond_type  = abap_true
+                            cond_value = abap_true
+                            currency   = abap_true ) TO lt_condx_ch.
+          ENDIF.
         ENDIF.
       ENDIF.
 
