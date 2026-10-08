@@ -32,9 +32,6 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
            tt_cond     TYPE SORTED TABLE OF bapimeoutcondition
                        WITH NON-UNIQUE KEY item_no serial_id cond_type.
 
-    "SERIAL_ID (KNUMH) es unico en todo el sistema; el periodo nuevo necesita un ID temporal que no exista en el documento
-    CONSTANTS gc_new_serial TYPE bapimeoutvalidity-serial_id VALUE '9999999999'.
-
     CLASS-METHODS last_day_of_month
       IMPORTING iv_date        TYPE dats
       RETURNING VALUE(rv_date) TYPE dats.
@@ -140,13 +137,14 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           lv_next_from  TYPE dats,
           lv_before     TYPE dats,
           lv_gd_err     TYPE abap_bool,
+          lv_serial     TYPE bapimeoutvalidity-serial_id,
+          lv_row        TYPE bapiret2-row,
           lv_ebelp      TYPE ebelp,
           lv_after      TYPE dats,
           lv_bapi_err   TYPE abap_bool,
           ls_left       TYPE bapimeoutvalidity,
           lt_bapi_ret   TYPE tt_return,
           lt_item_err   TYPE tt_return,
-          ls_exc_ret    TYPE bapiret2,
           lx_ch         TYPE REF TO cx_root.
 
     IF is_param-iv_nfm = abap_true.
@@ -184,9 +182,10 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     lt_cond_k = lt_cond.
 
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
-      CLEAR: ls_current, ls_new_val, ls_cond, ls_left, lv_next_from, lv_before, lv_after,
+      CLEAR: ls_current, ls_new_val, ls_cond, ls_left, lv_next_from, lv_before, lv_serial, lv_after,
              lv_bapi_err, lt_val_ch, lt_valx_ch, lt_cond_ch, lt_condx_ch, lt_bapi_ret.
       lv_invoice = <fs_item>-invoice_date.
+      lv_row     = <fs_item>-item.
 
       IF lv_invoice IS INITIAL.
         APPEND VALUE #( type       = 'E'
@@ -194,7 +193,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         number     = '030'
                         message_v1 = is_param-iv_purchasingdocument
                         message_v2 = <fs_item>-item
-                        row        = <fs_item>-item ) TO rt_return.
+                        row        = lv_row ) TO rt_return.
         RETURN.
       ENDIF.
 
@@ -251,7 +250,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         number     = '027'
                         message_v1 = is_param-iv_purchasingdocument
                         message_v2 = <fs_item>-item
-                        row        = <fs_item>-item ) TO lt_item_err.
+                        row        = lv_row ) TO lt_item_err.
         CONTINUE.
       ENDIF.
 
@@ -265,9 +264,12 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         number     = '026'
                         message_v1 = is_param-iv_purchasingdocument
                         message_v2 = <fs_item>-item
-                        row        = <fs_item>-item ) TO lt_item_err.
+                        row        = lv_row ) TO lt_item_err.
         CONTINUE.
       ENDIF.
+
+      "SERIAL_ID temporario por posicion. MAX+1 reusaba un KNUMH de la otra posicion.
+      lv_serial = |99999{ <fs_item>-item }|.
 
       "Guillermo: crear periodo nuevo FechaFactura .. dia anterior al siguiente (30.10).
       "Help SAP: periodos ordenados, sin overlap; el resto se desplaza a lv_valid_to + 1.
@@ -286,6 +288,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         APPEND VALUE #( item_no    = ls_cond-item_no
                         serial_id  = ls_cond-serial_id
                         item_nox   = abap_true
+                        change_id  = abap_true
                         cond_value = abap_true
                         currency   = abap_true ) TO lt_condx_ch.
       ELSE.
@@ -306,7 +309,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         ENDIF.
 
         ls_new_val = ls_current.
-        ls_new_val-serial_id  = gc_new_serial.
+        ls_new_val-serial_id  = lv_serial.
         ls_new_val-valid_from = lv_invoice.
         ls_new_val-valid_to   = lv_valid_to.
         APPEND ls_new_val TO lt_val_ch.
@@ -316,7 +319,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         valid_from = abap_true
                         valid_to   = abap_true ) TO lt_valx_ch.
 
-        ls_cond-serial_id  = gc_new_serial.
+        ls_cond-serial_id  = lv_serial.
         ls_cond-cond_count = '01'.
         ls_cond-change_id  = 'I'.
         ls_cond-cond_value = <fs_item>-price.
@@ -328,6 +331,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         serial_id  = ls_cond-serial_id
                         cond_count = ls_cond-cond_count
                         item_nox   = abap_true
+                        change_id  = abap_true
                         cond_type  = abap_true
                         cond_value = abap_true
                         currency   = abap_true ) TO lt_condx_ch.
@@ -343,6 +347,12 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       ENDIF.
 
       IF lt_val_ch IS INITIAL.
+        APPEND VALUE #( type       = 'E'
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '016'
+                        message_v1 = is_param-iv_purchasingdocument
+                        message_v2 = <fs_item>-item
+                        row        = lv_row ) TO lt_item_err.
         CONTINUE.
       ENDIF.
 
@@ -357,16 +367,14 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
               item_condition      = lt_cond_ch
               item_conditionx     = lt_condx_ch.
         CATCH cx_root INTO lx_ch.
-          ls_exc_ret     = append_exc( lx_ch ).
-          ls_exc_ret-row = <fs_item>-item.
-          APPEND ls_exc_ret TO rt_return.
+          APPEND append_exc( lx_ch ) TO rt_return.
+          rt_return[ lines( rt_return ) ]-row = lv_row.
           CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
           CONTINUE.
       ENDTRY.
 
-      "ROW = posicion: el llamador separa el resultado de cada posicion del mismo documento
       LOOP AT lt_bapi_ret ASSIGNING FIELD-SYMBOL(<fs_ret>).
-        <fs_ret>-row = <fs_item>-item.
+        <fs_ret>-row = lv_row.
         APPEND <fs_ret> TO rt_return.
         IF <fs_ret>-type = 'E' OR <fs_ret>-type = 'A'.
           lv_bapi_err = abap_true.
@@ -380,6 +388,13 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
         EXPORTING
           wait = abap_true.
+
+      APPEND VALUE #( type       = 'S'
+                      id         = 'ZCL_MSG_MM_003'
+                      number     = '017'
+                      message_v1 = is_param-iv_purchasingdocument
+                      message_v2 = <fs_item>-item
+                      row        = lv_row ) TO rt_return.
     ENDLOOP.
 
     APPEND LINES OF lt_item_err TO rt_return.
