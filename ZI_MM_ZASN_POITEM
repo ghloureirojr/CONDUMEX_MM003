@@ -1,0 +1,21 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'ASN Z por posición de pedido'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_ZASN_POITEM
+  as select from zasn                   as asn
+
+    inner join I_DeliveryDocumentItem   as del on  del.DeliveryDocument = asn.delivery_num
+                                               and del.PurchaseOrder    = asn.ebeln
+
+{
+  key del.PurchaseOrder,
+  key del.PurchaseOrderItem,
+      cast( count(*) as abap.int4 ) as AsnCount,
+      min( asn.lifex )              as LifexMin,
+      max( asn.lifex )              as LifexMax,
+      max( asn.unit_sell_price )    as UnitSellPrice
+}
+group by
+  del.PurchaseOrder,
+  del.PurchaseOrderItem
