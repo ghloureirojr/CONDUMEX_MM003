@@ -3,20 +3,25 @@
 @EndUserText.label: 'ASN Z por posición de pedido'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_ZASN_POITEM
-  as select from zasn                   as asn
-    inner join I_DeliveryDocument       as dlh on  dlh.DeliveryDocument           = asn.delivery_num
-                                               and dlh.OverallGoodsMovementStatus = 'A'
-    inner join I_DeliveryDocumentItem   as del on  del.DeliveryDocument = asn.delivery_num
-                                               and del.PurchaseOrder    = asn.ebeln
+  as select from zasn             as asn
+    inner join   ZI_MM_DLV_PO_MAT as dlv on  dlv.DeliveryDocument = asn.delivery_num
+                                        and dlv.PurchaseOrder     = asn.ebeln
+                                        and dlv.Material          = asn.matnr
 {
-  key del.PurchaseOrder,
-  key del.PurchaseOrderItem,
-      cast( count(*) as abap.int4 )                     as AsnCount,
-      min( asn.lifex )                                  as LifexMin,
-      max( asn.lifex )                                  as LifexMax,
-      max( asn.unit_sell_price )                        as UnitSellPrice,
-      cast( max( asn.extended_amt ) as abap.dec(13,5) ) as PrecioUnitarioVigente
+  key dlv.PurchaseOrder,
+  key dlv.PurchaseOrderItem,
+      cast( count(*) as abap.int4 ) as AsnCount,
+      min( asn.lifex )               as LifexMin,
+      max( asn.lifex )               as LifexMax,
+      max( asn.unit_sell_price )    as UnitSellPrice,
+      sum( cast( asn.lfimg as abap.dec(13,3) ) ) as CantidadFactura,
+      cast(
+        sum(
+          cast( asn.unit_sell_price as abap.dec(15,5) )
+            * cast( asn.lfimg as abap.dec(13,3) )
+        ) as abap.dec(13,5)
+      )                              as PrecioUnitarioVigente
 }
 group by
-  del.PurchaseOrder,
-  del.PurchaseOrderItem
+  dlv.PurchaseOrder,
+  dlv.PurchaseOrderItem
