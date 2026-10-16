@@ -1,7 +1,3 @@
-@AbapCatalog.viewEnhancementCategory: [#NONE]
-@AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'Monitor Compras ASN'
-@Metadata.ignorePropagatedAnnotations: true
 define root view entity ZI_MM_MONCOMP
   as select from    ZI_MM_WRAPPER_EKPO       as pos
 
@@ -32,6 +28,9 @@ define root view entity ZI_MM_MONCOMP
 
     left outer join ZI_MM_NFM_EXIST          as nfm       on  nfm.Material = pos.Material
                                                           and nfm.Plant    = pos.Plant
+
+    left outer join ZI_MM_ZASN_POITEM        as zasnpo    on  zasnpo.PurchaseOrder     = pos.PurchaseOrder
+                                                          and zasnpo.PurchaseOrderItem = pos.PurchaseOrderItem
 {
   key pos.PurchaseOrder              as OC,
   key pos.PurchaseOrderItem          as Posicion,
@@ -55,10 +54,16 @@ define root view entity ZI_MM_MONCOMP
       pos.OrderQuantity              as CantidadPedida,
       pos.PurchaseOrderQuantityUnit  as CantidadPedidaUnidad,
       @Semantics.quantity.unitOfMeasure: 'CantidadRecebidaUnidad'
-      coalesce( hist.Quantity, cast( 0 as bstmg ) ) as CantidadRecebida,
-      pos.PurchaseOrderQuantityUnit  as CantidadRecebidaUnidad,
+      hist.Quantity                  as CantidadRecebida,
+      hist.PurchaseOrderQuantityUnit as CantidadRecebidaUnidad,
       @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
-      pos.OrderQuantity - coalesce( hist.Quantity, cast( 0 as bstmg ) ) as CantidadPendiente,
+      cast (
+      case
+        when $projection.CantidadPedidaUnidad = $projection.CantidadRecebidaUnidad
+          then $projection.CantidadPedida - $projection.CantidadRecebida
+        else cast( 0 as bstmg )
+      end
+      as bstmg )                     as CantidadPendiente,
       @Semantics.amount.currencyCode: 'MonedaOC'
       pos.NetPriceAmount             as PrecioOC,
       pos.DocumentCurrency           as MonedaOC,
@@ -99,7 +104,11 @@ define root view entity ZI_MM_MONCOMP
                      'FAIL',
                       'INITIAL' )    as FechaAprobacion,
       log.nota                       as Nota,
-      log.fecha_factura              as FechaFactura
+      log.fecha_factura              as FechaFactura,
+      zasnpo.AsnCount                as CantidadLineasZasn,
+      zasnpo.LifexMin                as FacturaRemisionMin,
+      zasnpo.LifexMax                as FacturaRemisionMax,
+      zasnpo.UnitSellPrice           as PrecioUnitarioZasn
 }
 where
   (
