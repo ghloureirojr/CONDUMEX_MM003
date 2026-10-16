@@ -4,6 +4,8 @@
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_ZASN_POITEM
   as select from zasn                   as asn
+    inner join I_DeliveryDocument       as dlh on  dlh.DeliveryDocument           = asn.delivery_num
+                                               and dlh.OverallGoodsMovementStatus = 'A'
     inner join I_DeliveryDocumentItem   as del on  del.DeliveryDocument = asn.delivery_num
                                                and del.PurchaseOrder    = asn.ebeln
 {
