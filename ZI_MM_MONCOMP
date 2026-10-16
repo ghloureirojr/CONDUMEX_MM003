@@ -105,10 +105,11 @@ define root view entity ZI_MM_MONCOMP
                       'INITIAL' )    as FechaAprobacion,
       log.nota                       as Nota,
       log.fecha_factura              as FechaFactura,
-      zasnpo.AsnCount                as CantidadLineasZasn,
-      zasnpo.LifexMin                as FacturaRemisionMin,
-      zasnpo.LifexMax                as FacturaRemisionMax,
-      zasnpo.UnitSellPrice           as PrecioUnitarioZasn
+      zasnpo.AsnCount              as CantidadLineasZasn,
+      zasnpo.LifexMin              as FacturaRemisionMin,
+      zasnpo.LifexMax              as FacturaRemisionMax,
+      zasnpo.UnitSellPrice         as PrecioUnitarioZasn,
+      zasnpo.PrecioUnitarioVigente as PrecioUnitarioVigente
 }
 where
   (
