@@ -16,10 +16,8 @@ define view entity ZI_MM_ZASN_POITEM
       max( asn.unit_sell_price )    as UnitSellPrice,
       sum( cast( asn.lfimg as abap.dec(13,3) ) ) as CantidadFactura,
       cast(
-        sum(
-          cast( asn.unit_sell_price as abap.dec(15,5) )
-            * cast( asn.lfimg as abap.dec(13,3) )
-        ) as abap.dec(13,5)
+        max( cast( asn.extended_amt as abap.dec(16,2) ) )
+        as abap.dec(16,5)
       )                              as PrecioUnitarioVigente
 }
 group by
