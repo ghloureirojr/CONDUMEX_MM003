@@ -152,16 +152,33 @@ METHOD authPrecioASN.
         CONTINUE.
       ENDIF.
 
+      DATA(lv_precio_nfm) = CONV bapicurext( <fs_moncomp>-PrecioNfm ).
+
+      IF lv_precio_nfm IS INITIAL.
+        reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                 %tky = keys[ KEY id %key-oc       = <fs_moncomp>-oc
+                                                                     %key-Posicion = <fs_moncomp>-Posicion ]-%tky
+                                                 %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                     number   = 034
+                                                                     v1       = <fs_moncomp>-oc
+                                                                     v2       = <fs_moncomp>-Posicion
+                                                                     severity = if_abap_behv_message=>severity-error ) ) ).
+        CLEAR lv_timestamp.
+        CONTINUE.
+      ENDIF.
+
       APPEND VALUE #( po_item      = <fs_moncomp>-Posicion
+                      net_price    = lv_precio_nfm
                       invoice_date = <fs_moncomp>-FechaFactura ) TO <fs_change_pos>-t_poitem.
 
-      APPEND VALUE #( po_item  = <fs_moncomp>-Posicion
-                      po_itemx = abap_true ) TO <fs_change_pos>-t_poitemx.
+      APPEND VALUE #( po_item   = <fs_moncomp>-Posicion
+                      po_itemx  = abap_true
+                      net_price = abap_true ) TO <fs_change_pos>-t_poitemx.
 
       APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
                       precioOC  = <fs_moncomp>-PrecioOC
-                      precioASN = <fs_moncomp>-PrecioASN
-                      monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
+                      precioASN = CONV bprei( lv_precio_nfm )
+                      monedaASN = <fs_moncomp>-MonedaOC ) TO <fs_id>-t_pos.
 
       lv_run_bapi = abap_true.
       CLEAR lv_timestamp.
