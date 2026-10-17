@@ -92,6 +92,10 @@ annotate entity ZC_MM_MONCOMP with
   @UI.lineItem: [ { position: 140 } ]
   @UI.identification: [ { position: 140 } ]
   PrecioASN;
+  @EndUserText.label: 'Precio NFM'
+  @UI.lineItem: [ { position: 145, importance: #HIGH } ]
+  @UI.identification: [ { position: 145 } ]
+  PrecioNfm;
   @EndUserText.label: 'Moneda ASN'
   @UI.lineItem: [ { position: 150 } ]
   @UI.identification: [ { position: 150 } ]
