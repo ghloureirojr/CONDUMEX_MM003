@@ -1,0 +1,21 @@
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'OC/posicion con entrega WBSTK A'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_PO_DELIVERY_EXISTS
+  as select from I_PurchaseOrderItemAPI01 as pos
+
+    inner join   I_DeliveryDocumentItem   as asn on  asn.PurchaseOrder     = pos.PurchaseOrder
+                                                 and asn.PurchaseOrderItem = pos.PurchaseOrderItem
+
+    inner join   I_DeliveryDocument       as dlv on dlv.DeliveryDocument = asn.DeliveryDocument
+{
+  key pos.PurchaseOrder,
+  key pos.PurchaseOrderItem,
+      min( asn.DeliveryDocument )     as DeliveryDocument,
+      min( asn.DeliveryDocumentItem ) as DeliveryDocumentItem
+}
+where
+  dlv.OverallGoodsMovementStatus = 'A'
+group by
+  pos.PurchaseOrder,
+  pos.PurchaseOrderItem
