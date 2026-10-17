@@ -1,0 +1,28 @@
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Factor precio NFM por OC/posicion'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_NFM_POPRICE
+  as select from ekpo           as item
+
+    inner join   /nfm/torderpos as nfm on  nfm.belnr = item.ebeln
+                                       and nfm.posnr = item.ebelp
+{
+  key item.ebeln as PurchaseOrder,
+  key item.ebelp as PurchaseOrderItem,
+      item.bprme as OrderPriceUnit,
+      item.lmein as BaseUnit,
+      sum(
+        case
+          when nfm.bmg = 0
+            or nfm.vge = 0
+            then cast( 0 as abap.decfloat34 )
+          else ( cast( nfm.nku as abap.decfloat34 ) / cast( nfm.bmg as abap.decfloat34 ) )
+             * ( cast( nfm.vgw as abap.decfloat34 ) / cast( nfm.vge as abap.decfloat34 ) )
+        end
+      )          as FactorNfm
+}
+group by
+  item.ebeln,
+  item.ebelp,
+  item.bprme,
+  item.lmein
