@@ -1,0 +1,51 @@
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Monitor Compras ASN'
+@Metadata.ignorePropagatedAnnotations: true
+@Metadata.allowExtensions: true
+define root view entity ZC_MM_MONCOMP
+  provider contract transactional_query
+  as projection on ZI_MM_MONCOMP
+{
+  key OC,
+  key Posicion,
+      FechaOC,
+      StorageLoc,
+      ItemCateg,
+      Sociedad,
+      Material,
+      MatDesc,
+      Proveedor,
+      NombreProveedor,
+      Centro,
+      TipoDocumento,
+      IsNfm,
+      @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
+      CantidadPedida,
+      CantidadPedidaUnidad,
+      @Semantics.quantity.unitOfMeasure: 'CantidadRecebidaUnidad'
+      CantidadRecebida,
+      CantidadRecebidaUnidad,
+      @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
+      CantidadPendiente,
+      PrecioOC,
+      MonedaOC,
+      PrecioASN,
+      MonedaASN,
+      PrecioInforec,
+      MonedaInforec,
+      Cantidad,
+      DiferenciaOcAsn,
+      DiferenciaAsnInforec,
+      Estado,
+      UsuarioAprobador,
+      FechaAprobacion,
+      Nota,
+      FechaFactura,
+      FacturaRemision,
+      CantidadFactura,
+      PrecioUnitarioVigente,
+      UnidadPrecio,
+      UnidadBase,
+      FactorNfm,
+      PrecioNfm
+}
