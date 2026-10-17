@@ -1,24 +1,22 @@
-@AbapCatalog.viewEnhancementCategory: [#NONE]
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'ASN Z por posición de pedido'
+@EndUserText.label: 'ZASN agregada por OC/posicion'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_ZASN_POITEM
   as select from zasn             as asn
+
     inner join   ZI_MM_DLV_PO_MAT as dlv on  dlv.DeliveryDocument = asn.delivery_num
-                                        and dlv.PurchaseOrder     = asn.ebeln
-                                        and dlv.Material          = asn.matnr
+                                         and dlv.PurchaseOrder    = asn.ebeln
+                                         and dlv.Material         = asn.matnr
 {
   key dlv.PurchaseOrder,
   key dlv.PurchaseOrderItem,
-      cast( count(*) as abap.int4 ) as AsnCount,
-      min( asn.lifex )               as LifexMin,
-      max( asn.lifex )               as LifexMax,
-      max( asn.unit_sell_price )    as UnitSellPrice,
+      cast( count(*) as abap.int4 )             as AsnCount,
+      min( asn.lifex )                           as LifexMin,
+      max( asn.lifex )                           as LifexMax,
+      max( asn.unit_sell_price )                 as UnitSellPrice,
       sum( cast( asn.lfimg as abap.dec(13,3) ) ) as CantidadFactura,
-      cast(
-        max( cast( asn.extended_amt as abap.dec(16,2) ) )
-        as abap.dec(16,5)
-      )                              as PrecioUnitarioVigente
+      cast( round( sum( asn.unit_sell_price * cast( asn.lfimg as abap.dec(13,3) ) ), 5 )
+            as abap.dec(16,5) )                  as PrecioUnitarioVigente
 }
 group by
   dlv.PurchaseOrder,
