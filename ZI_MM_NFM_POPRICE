@@ -4,7 +4,7 @@
 define view entity ZI_MM_NFM_POPRICE
   as select from ekpo           as item
     inner join   /nfm/torderpos as nfm on  nfm.belnr = item.ebeln
-                                       and nfm.posnr = cast( item.ebelp as abap.numc(6) )
+                                       and nfm.posnr = lpad( item.ebelp, 6, '0' )
 {
   key item.ebeln as PurchaseOrder,
   key item.ebelp as PurchaseOrderItem,
