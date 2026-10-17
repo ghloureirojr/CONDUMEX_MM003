@@ -1,3 +1,7 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Monitor compras ASN'
+@Metadata.ignorePropagatedAnnotations: true
 define root view entity ZI_MM_MONCOMP
   as select from    ZI_MM_WRAPPER_EKPO       as pos
 
@@ -67,8 +71,10 @@ define root view entity ZI_MM_MONCOMP
         else cast( 0 as bstmg )
       end
       as bstmg )                     as CantidadPendiente,
+      @Metadata.ignorePropagatedAnnotations: true
       cast( pos.NetPriceAmount as abap.dec(16,5) ) as PrecioOC,
       pos.DocumentCurrency           as MonedaOC,
+      @Metadata.ignorePropagatedAnnotations: true
       cast(
         case
           when zasn.PurchaseOrder is not null
@@ -82,9 +88,11 @@ define root view entity ZI_MM_MONCOMP
           then pos.DocumentCurrency
         else log.moneda_asn
       end                            as MonedaASN,
+      @Metadata.ignorePropagatedAnnotations: true
       cast( inforec.NetPriceAmount as abap.dec(16,5) ) as PrecioInforec,
       inforec.Currency               as MonedaInforec,
       pos.NetPriceQuantity           as Cantidad,
+      @Metadata.ignorePropagatedAnnotations: true
       cast(
         case
           when $projection.MonedaOC = $projection.MonedaASN
@@ -92,6 +100,7 @@ define root view entity ZI_MM_MONCOMP
           else cast( 0 as abap.dec(16,5) )
         end
         as abap.dec(16,5) )          as DiferenciaOcAsn,
+      @Metadata.ignorePropagatedAnnotations: true
       cast(
         case
           when $projection.MonedaASN = $projection.MonedaInforec
@@ -120,11 +129,13 @@ define root view entity ZI_MM_MONCOMP
       log.fecha_factura              as FechaFactura,
       zasn.LifexMin                  as FacturaRemision,
       zasn.CantidadFactura           as CantidadFactura,
-      zasn.PrecioUnitarioVigente     as PrecioUnitarioVigente,
+      @Metadata.ignorePropagatedAnnotations: true
+      cast( zasn.PrecioUnitarioVigente as abap.dec(16,5) ) as PrecioUnitarioVigente,
       nfmp.OrderPriceUnit            as UnidadPrecio,
       nfmp.BaseUnit                  as UnidadBase,
       cast( nfmp.FactorNfm as abap.dec(31,14) ) as FactorNfm,
       @EndUserText.label: 'Precio NFM'
+      @Metadata.ignorePropagatedAnnotations: true
       cast(
       case
         when $projection.IsNfm = 'X'
