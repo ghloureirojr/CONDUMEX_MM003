@@ -67,28 +67,38 @@ define root view entity ZI_MM_MONCOMP
         else cast( 0 as bstmg )
       end
       as bstmg )                     as CantidadPendiente,
-      @Semantics.amount.currencyCode: 'MonedaOC'
-      pos.NetPriceAmount             as PrecioOC,
+      cast( pos.NetPriceAmount as abap.dec(16,5) ) as PrecioOC,
       pos.DocumentCurrency           as MonedaOC,
-      @Semantics.amount.currencyCode: 'MonedaASN'
-      log.precio_asn                 as PrecioASN,
-      log.moneda_asn                 as MonedaASN,
-      @Semantics.amount.currencyCode: 'MonedaInforec'
-      inforec.NetPriceAmount         as PrecioInforec,
+      cast(
+        case
+          when zasn.PurchaseOrder is not null
+            then zasn.PrecioUnitarioVigente
+          else cast( log.precio_asn as abap.dec(16,5) )
+        end
+        as abap.dec(16,5) )          as PrecioASN,
+      case
+        when zasn.PurchaseOrder is not null
+         and log.moneda_asn is initial
+          then pos.DocumentCurrency
+        else log.moneda_asn
+      end                            as MonedaASN,
+      cast( inforec.NetPriceAmount as abap.dec(16,5) ) as PrecioInforec,
       inforec.Currency               as MonedaInforec,
       pos.NetPriceQuantity           as Cantidad,
-      @Semantics.amount.currencyCode: 'MonedaOC'
-      case
-        when $projection.MonedaOC = $projection.MonedaASN
-          then $projection.PrecioOC - $projection.PrecioASN
-        else cast( 0 as bprei )
-      end                            as DiferenciaOcAsn,
-      @Semantics.amount.currencyCode: 'MonedaASN'
-      case
-        when $projection.MonedaASN = $projection.MonedaInforec
-          then $projection.PrecioASN - $projection.PrecioInforec
-        else cast( 0 as bprei )
-      end                            as DiferenciaAsnInforec,
+      cast(
+        case
+          when $projection.MonedaOC = $projection.MonedaASN
+            then $projection.PrecioOC - $projection.PrecioASN
+          else cast( 0 as abap.dec(16,5) )
+        end
+        as abap.dec(16,5) )          as DiferenciaOcAsn,
+      cast(
+        case
+          when $projection.MonedaASN = $projection.MonedaInforec
+            then $projection.PrecioASN - $projection.PrecioInforec
+          else cast( 0 as abap.dec(16,5) )
+        end
+        as abap.dec(16,5) )          as DiferenciaAsnInforec,
       case
         when log.estado = '06'
           then 'Autorizado'
@@ -114,6 +124,7 @@ define root view entity ZI_MM_MONCOMP
       nfmp.OrderPriceUnit            as UnidadPrecio,
       nfmp.BaseUnit                  as UnidadBase,
       cast( nfmp.FactorNfm as abap.dec(31,14) ) as FactorNfm,
+      @EndUserText.label: 'Precio NFM'
       cast(
       case
         when $projection.IsNfm = 'X'
