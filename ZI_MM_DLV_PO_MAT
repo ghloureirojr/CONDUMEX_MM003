@@ -1,9 +1,9 @@
-@AbapCatalog.viewEnhancementCategory: [#NONE]
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'Posición de entrega por material'
+@EndUserText.label: 'Entrega x OC x material (WBSTK A)'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_DLV_PO_MAT
   as select from I_DeliveryDocumentItem as item
+
     inner join   I_DeliveryDocument     as hdr on hdr.DeliveryDocument = item.DeliveryDocument
 {
   key item.DeliveryDocument,
