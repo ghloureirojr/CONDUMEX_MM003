@@ -709,6 +709,9 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         ENDIF.
 
         ls_cond-cond_value = <fs_item>-net_price.
+        IF <fs_item>-price_unit > 0.
+          ls_cond-cond_p_unt = <fs_item>-price_unit.
+        ENDIF.
         ls_cond-change_id  = 'U'.
         APPEND ls_cond TO lt_pocond.
 
@@ -717,6 +720,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
                         cond_st_no   = ls_cond-cond_st_no
                         cond_count   = ls_cond-cond_count
                         cond_value   = abap_true
+                        cond_p_unt   = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
                         change_id    = abap_true ) TO lt_pocondx.
       ENDLOOP.
     ENDIF.
