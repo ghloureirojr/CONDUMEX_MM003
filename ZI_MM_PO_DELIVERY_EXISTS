@@ -1,5 +1,6 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'OC/posicion con entrega WBSTK A'
+@EndUserText.label: 'Entrega em status A por posição'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_PO_DELIVERY_EXISTS
   as select from I_PurchaseOrderItemAPI01 as pos
@@ -8,6 +9,7 @@ define view entity ZI_MM_PO_DELIVERY_EXISTS
                                                  and asn.PurchaseOrderItem = pos.PurchaseOrderItem
 
     inner join   I_DeliveryDocument       as dlv on dlv.DeliveryDocument = asn.DeliveryDocument
+
 {
   key pos.PurchaseOrder,
   key pos.PurchaseOrderItem,
