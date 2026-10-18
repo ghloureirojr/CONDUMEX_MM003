@@ -602,7 +602,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         CLEAR: lv_peinh, lv_monto.
         lv_peinh = <fs_moncomp>-Cantidad.
         IF lv_peinh > 0.
-          lv_monto = round( CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh, 2 ).
+          lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh dec = 2 ).
         ELSE.
           lv_monto = <fs_moncomp>-PrecioASN.
         ENDIF.
@@ -685,7 +685,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           CLEAR: lv_peinh, lv_monto.
           lv_peinh = <fs_moncomp>-Cantidad.
           IF lv_peinh > 0.
-            lv_monto = round( CONV decfloat34( <fs_moncomp>-PrecioOC ) * lv_peinh, 2 ).
+            lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioOC ) * lv_peinh dec = 2 ).
           ELSE.
             lv_monto = <fs_moncomp>-PrecioOC.
           ENDIF.
@@ -718,7 +718,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             CLEAR: lv_peinh, lv_monto.
             lv_peinh = <fs_moncomp>-Cantidad.
             IF lv_peinh > 0.
-              lv_monto = round( CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh, 2 ).
+              lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh dec = 2 ).
             ELSE.
               lv_monto = <fs_moncomp>-PrecioASN.
             ENDIF.
