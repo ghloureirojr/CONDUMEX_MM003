@@ -15,8 +15,13 @@ define view entity ZI_MM_ZASN_POITEM
       max( asn.lifex )                           as LifexMax,
       max( asn.unit_sell_price )                 as UnitSellPrice,
       sum( cast( asn.lfimg as abap.dec(13,3) ) ) as CantidadFactura,
-      cast( round( sum( asn.unit_sell_price * cast( asn.lfimg as abap.dec(13,3) ) ), 5 )
-            as abap.dec(16,5) )                  as PrecioUnitarioVigente
+      cast(
+        case
+          when min( asn.unit_sell_price ) = max( asn.unit_sell_price )
+            then cast( max( asn.unit_sell_price ) as abap.dec(16,5) )
+          else cast( 0 as abap.dec(16,5) )
+        end
+        as abap.dec(16,5) )                      as PrecioUnitarioVigente
 }
 group by
   dlv.PurchaseOrder,
