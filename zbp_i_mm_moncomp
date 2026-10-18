@@ -15,8 +15,8 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
            END OF ty_excel,
            BEGIN OF ty_posicion,
              posicion  TYPE vdm_purchaseorderitem,
-             precioOC  TYPE bprei,
-             precioASN TYPE bprei,
+             precioOC  TYPE zmm_moncomp_log-precio_anterior,
+             precioASN TYPE zmm_moncomp_log-precio_asn,
              monedaASN TYPE waers,
            END OF ty_posicion,
            BEGIN OF ty_id,
@@ -119,7 +119,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           lt_product       TYPE HASHED TABLE OF I_Product          WITH UNIQUE KEY Product,
           lt_currency      TYPE HASHED TABLE OF I_Currency         WITH UNIQUE KEY Currency,
           lv_file_content  TYPE xstring,
-          lv_precio        TYPE bprei,
+          lv_precio        TYPE zmm_moncomp_log-precio_asn,
           lv_cantidad      TYPE bprei,
           lv_precio_norm   TYPE string,
           lv_cantidad_norm TYPE string,
@@ -391,7 +391,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             lv_precio_norm = replace( val = <fs_excel>-precio sub = ',' with = '.' ).
 
             TRY.
-                lv_precio = CONV bprei( lv_precio_norm ).
+                lv_precio = CONV #( lv_precio_norm ).
               CATCH cx_sy_conversion_no_number
                     cx_sy_conversion_overflow
                     cx_sy_conversion_error.
@@ -513,6 +513,16 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                    <fs_new_pos_result> TYPE zcl_mm_wrapper_po_change=>ty_posicion,
                    <fs_change_pos>     TYPE zcl_mm_wrapper_po_change=>ty_param,
                    <fs_br>             TYPE bapiret2.
+
+    TYPES: BEGIN OF ty_precio_nueva,
+             oc     TYPE vdm_purchaseorder,
+             precio TYPE zmm_moncomp_log-precio_asn,
+           END OF ty_precio_nueva.
+    DATA: lt_precio_nueva TYPE STANDARD TABLE OF ty_precio_nueva,
+          lv_nueva_idx    TYPE i,
+          lv_nueva_n      TYPE i,
+          lv_precio_ok    TYPE abap_bool,
+          lv_precio_log   TYPE zmm_moncomp_log-precio_asn.
 
     CLEAR: lcl_buffer=>gt_sag, lcl_buffer=>gt_sag_id.
 
@@ -668,6 +678,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                           precioOC  = <fs_moncomp>-PrecioOC
                           precioASN = <fs_moncomp>-PrecioASN
                           monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
+
+          APPEND VALUE #( oc     = <fs_moncomp>-oc
+                          precio = <fs_moncomp>-PrecioOC ) TO lt_precio_nueva.
 
           APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
                           no_more_gr = abap_true ) TO <fs_change_pos>-t_poitem.
@@ -895,16 +908,34 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 LOOP AT <fs_result>-t_new_pos ASSIGNING <fs_new_pos_result>.
                   GET TIME STAMP FIELD lv_timestamp.
 
+                  lv_nueva_idx = sy-tabix.
+                  CLEAR: lv_nueva_n, lv_precio_ok, lv_precio_log.
+                  LOOP AT lt_precio_nueva ASSIGNING FIELD-SYMBOL(<fs_precio_nueva>)
+                      WHERE oc = <fs_result>-oc.
+                    lv_nueva_n += 1.
+                    IF lv_nueva_n = lv_nueva_idx.
+                      lv_precio_log = <fs_precio_nueva>-precio.
+                      lv_precio_ok  = abap_true.
+                      EXIT.
+                    ENDIF.
+                  ENDLOOP.
+
+                  IF lv_precio_ok = abap_false.
+                    lv_precio_log = COND #( WHEN <fs_id>-t_pos[ 1 ]-precioASN IS NOT INITIAL
+                                            THEN <fs_id>-t_pos[ 1 ]-precioASN
+                                            ELSE <fs_id>-t_pos[ 1 ]-precioOC ).
+                  ENDIF.
+
                   APPEND VALUE #( client       = sy-mandt
                                   oc           = <fs_result>-oc
                                   posicion     = <fs_new_pos_result>-posicion
                                   usuario      = cl_abap_context_info=>get_user_technical_name( )
                                   fecha_hora   = lv_timestamp
-                                  precio_asn   = <fs_new_pos_result>-net_price
+                                  precio_asn   = lv_precio_log
                                   moneda_asn   = <fs_id>-t_pos[ 1 ]-monedaASN
                                   accion       = '01'
                                   estado       = '06'
-                                  precio_nuevo = <fs_new_pos_result>-net_price ) TO lcl_buffer=>gt_log.
+                                  precio_nuevo = lv_precio_log ) TO lcl_buffer=>gt_log.
 
                   reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                            %tky = keys[ KEY id %key-oc       = <fs_result>-oc
