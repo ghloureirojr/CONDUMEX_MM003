@@ -303,6 +303,9 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         ELSE.
           ls_cond-serial_id  = ls_current-serial_id.
           ls_cond-cond_value = <fs_item>-price.
+          IF <fs_item>-price_unit > 0.
+            ls_cond-cond_p_unt = <fs_item>-price_unit.
+          ENDIF.
           IF <fs_item>-currency IS NOT INITIAL.
             ls_cond-currency = <fs_item>-currency.
           ENDIF.
@@ -321,6 +324,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                           serial_id  = ls_cond-serial_id
                           item_nox   = abap_true
                           cond_value = abap_true
+                          cond_p_unt = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
                           currency   = abap_true ) TO lt_condx_ch.
         ENDIF.
       ELSE.
@@ -358,6 +362,9 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           ls_cond-serial_id  = lv_serial.
           ls_cond-cond_count = '01'.
           ls_cond-cond_value = <fs_item>-price.
+          IF <fs_item>-price_unit > 0.
+            ls_cond-cond_p_unt = <fs_item>-price_unit.
+          ENDIF.
           IF <fs_item>-currency IS NOT INITIAL.
             ls_cond-currency = <fs_item>-currency.
           ENDIF.
@@ -376,6 +383,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                           item_nox   = abap_true
                           cond_type  = abap_true
                           cond_value = abap_true
+                          cond_p_unt = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
                           currency   = abap_true ) TO lt_condx_new.
         ENDIF.
       ENDIF.
