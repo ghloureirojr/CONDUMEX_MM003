@@ -3,7 +3,7 @@
 @EndUserText.label: 'Entrega em status A por posição'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_PO_DELIVERY_EXISTS
-  as select from I_PurchaseOrderItemAPI01 as pos
+  as select from ZI_MM_WRAPPER_EKPO as pos
 
     inner join   I_DeliveryDocumentItem   as asn on  asn.PurchaseOrder     = pos.PurchaseOrder
                                                  and asn.PurchaseOrderItem = pos.PurchaseOrderItem
