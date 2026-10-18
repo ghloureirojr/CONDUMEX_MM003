@@ -91,7 +91,8 @@ define root view entity ZI_MM_MONCOMP
       case
         when zasn.PurchaseOrder is not null
          and zasn.PrecioUnitarioVigente <> 0
-         and log.moneda_asn is initial
+         and ( log.moneda_asn is null
+            or log.moneda_asn is initial )
           then pos.DocumentCurrency
         else log.moneda_asn
       end                            as MonedaASN,
