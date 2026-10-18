@@ -503,7 +503,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           lv_bapi_msg   TYPE abap_bool,
           lv_sag_msg    TYPE abap_bool,
           lv_err_txt    TYPE string,
-          lt_in         TYPE cl_abap_parallel=>t_in_tab.
+          lt_in         TYPE cl_abap_parallel=>t_in_tab,
+          lv_peinh      TYPE epein,
+          lv_monto      TYPE bapicurext.
 
     FIELD-SYMBOLS: <fs_id>             TYPE lcl_buffer=>ty_id,
                    <fs_sag_id>         TYPE lcl_buffer=>ty_id,
@@ -597,11 +599,19 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           APPEND VALUE #( oc = <fs_moncomp>-oc ) TO lt_sag_id.
         ENDIF.
 
+        CLEAR: lv_peinh, lv_monto.
+        lv_peinh = <fs_moncomp>-Cantidad.
+        IF lv_peinh > 0.
+          lv_monto = round( CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh, 2 ).
+        ELSE.
+          lv_monto = <fs_moncomp>-PrecioASN.
+        ENDIF.
+
         INSERT VALUE #( item         = <fs_moncomp>-Posicion
-                        price        = <fs_moncomp>-PrecioASN
+                        price        = lv_monto
                         currency     = <fs_moncomp>-MonedaASN
                         unit         = <fs_moncomp>-CantidadPedidaUnidad
-                        price_unit   = <fs_moncomp>-Cantidad
+                        price_unit   = lv_peinh
                         invoice_date = <fs_moncomp>-FechaFactura )
                INTO TABLE <fs_sag>-t_item.
 
@@ -672,14 +682,22 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           <fs_new_pos>-is_poheader-po_number  = <fs_moncomp>-oc.
           <fs_new_pos>-is_poheaderx-po_number = abap_true.
 
+          CLEAR: lv_peinh, lv_monto.
+          lv_peinh = <fs_moncomp>-Cantidad.
+          IF lv_peinh > 0.
+            lv_monto = round( CONV decfloat34( <fs_moncomp>-PrecioOC ) * lv_peinh, 2 ).
+          ELSE.
+            lv_monto = <fs_moncomp>-PrecioOC.
+          ENDIF.
+
           APPEND VALUE #( po_item    = ''
                           short_text = <fs_moncomp>-MatDesc
                           material   = <fs_moncomp>-Material
                           plant      = <fs_moncomp>-Centro
                           stge_loc   = <fs_moncomp>-StorageLoc
                           item_cat   = <fs_moncomp>-ItemCateg
-                          net_price  = <fs_moncomp>-PrecioOC
-                          price_unit = <fs_moncomp>-MonedaOC
+                          net_price  = lv_monto
+                          price_unit = lv_peinh
                           quantity   = <fs_moncomp>-CantidadPedida - <fs_moncomp>-CantidadRecebida
                           po_unit    = <fs_moncomp>-CantidadPedidaUnidad ) TO <fs_new_pos>-t_poitem.
 
@@ -697,12 +715,22 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                             precioASN = <fs_moncomp>-PrecioASN
                             monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
 
-            APPEND VALUE #( po_item   = <fs_moncomp>-Posicion
-                            net_price = <fs_moncomp>-PrecioASN ) TO <fs_change_pos>-t_poitem.
+            CLEAR: lv_peinh, lv_monto.
+            lv_peinh = <fs_moncomp>-Cantidad.
+            IF lv_peinh > 0.
+              lv_monto = round( CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh, 2 ).
+            ELSE.
+              lv_monto = <fs_moncomp>-PrecioASN.
+            ENDIF.
 
-            APPEND VALUE #( po_item   = <fs_moncomp>-Posicion
-                            po_itemx  = abap_true
-                            net_price = abap_true ) TO <fs_change_pos>-t_poitemx.
+            APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
+                            net_price  = lv_monto
+                            price_unit = lv_peinh ) TO <fs_change_pos>-t_poitem.
+
+            APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
+                            po_itemx   = abap_true
+                            net_price  = abap_true
+                            price_unit = abap_true ) TO <fs_change_pos>-t_poitemx.
 
             lv_run_bapi = abap_true.
           ELSE.
@@ -777,7 +805,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             WITH TABLE KEY id COMPONENTS oc = <fs_result>-oc.
 
           IF sy-subrc IS INITIAL.
-            IF NOT line_exists( <fs_result>-bapiret[ type = 'S' ] ).
+            IF line_exists( <fs_result>-bapiret[ type = 'E' ] )
+            OR line_exists( <fs_result>-bapiret[ type = 'A' ] )
+            OR NOT line_exists( <fs_result>-bapiret[ type = 'S' ] ).
               CLEAR lv_err_txt.
               LOOP AT <fs_result>-bapiret ASSIGNING <fs_br>.
                 IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
@@ -871,7 +901,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                   usuario      = cl_abap_context_info=>get_user_technical_name( )
                                   fecha_hora   = lv_timestamp
                                   precio_asn   = <fs_new_pos_result>-net_price
-                                  moneda_asn   = <fs_new_pos_result>-price_unit
+                                  moneda_asn   = <fs_id>-t_pos[ 1 ]-monedaASN
                                   accion       = '01'
                                   estado       = '06'
                                   precio_nuevo = <fs_new_pos_result>-net_price ) TO lcl_buffer=>gt_log.
