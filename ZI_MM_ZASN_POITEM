@@ -21,7 +21,14 @@ define view entity ZI_MM_ZASN_POITEM
             then cast( max( asn.unit_sell_price ) as abap.dec(16,5) )
           else cast( 0 as abap.dec(16,5) )
         end
-        as abap.dec(16,5) )                      as PrecioUnitarioVigente
+        as abap.dec(16,5) )                      as PrecioUnitarioVigente,
+      cast(
+        case
+          when min( asn.bldat ) = max( asn.bldat )
+            then max( asn.bldat )
+          else cast( '00000000' as abap.dats )
+        end
+        as bldat )                               as FechaFactura
 }
 group by
   dlv.PurchaseOrder,
