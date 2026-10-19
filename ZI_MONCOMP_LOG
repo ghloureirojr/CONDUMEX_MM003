@@ -1,0 +1,21 @@
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Log vigente por OC, posicion y entrega'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MONCOMP_LOG
+  as select from zmm_moncomp_log as log
+    inner join   ZI_MONCOMP_LOG_MAX as mx on  mx.Oc        = log.oc
+                                          and mx.Posicion  = log.posicion
+                                          and mx.Vbeln     = log.vbeln
+                                          and mx.FechaHora = log.fecha_hora
+{
+  key log.oc            as Oc,
+  key log.posicion      as Posicion,
+  key log.vbeln         as Vbeln,
+      log.precio_asn,
+      log.moneda_asn,
+      log.estado,
+      log.usuario,
+      log.fecha_hora    as FechaHora,
+      log.nota,
+      log.fecha_factura
+}
