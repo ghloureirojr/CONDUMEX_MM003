@@ -13,11 +13,16 @@ define view entity ZI_MM_PO_DELIVERY_EXISTS
 {
   key pos.PurchaseOrder,
   key pos.PurchaseOrderItem,
-      min( asn.DeliveryDocument )     as DeliveryDocument,
-      min( asn.DeliveryDocumentItem ) as DeliveryDocumentItem
+  key asn.DeliveryDocument,
+      min( asn.DeliveryDocumentItem ) as DeliveryDocumentItem,
+      dlv.DocumentDate,
+      dlv.DeliveryDocumentBySupplier
 }
 where
   dlv.OverallGoodsMovementStatus = 'A'
 group by
   pos.PurchaseOrder,
-  pos.PurchaseOrderItem
+  pos.PurchaseOrderItem,
+  asn.DeliveryDocument,
+  dlv.DocumentDate,
+  dlv.DeliveryDocumentBySupplier
