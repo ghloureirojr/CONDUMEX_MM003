@@ -1,35 +1,32 @@
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'ZASN agregada por OC/posicion'
+@EndUserText.label: 'ZASN agregada por OC/posicion/entrega'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_ZASN_POITEM
-  as select from zasn             as asn
-
-    inner join   ZI_MM_DLV_PO_MAT as dlv on  dlv.DeliveryDocument = asn.delivery_num
-                                         and dlv.PurchaseOrder    = asn.ebeln
-                                         and dlv.Material         = asn.matnr
+  as select from zasn as asn
+    inner join ZI_MM_DLV_PO_MAT as dlv
+      on  dlv.DeliveryDocument = asn.delivery_num
+      and dlv.PurchaseOrder    = asn.ebeln
+      and dlv.Material         = asn.matnr
 {
+  key dlv.DeliveryDocument,
   key dlv.PurchaseOrder,
   key dlv.PurchaseOrderItem,
-      cast( count(*) as abap.int4 )             as AsnCount,
-      min( asn.lifex )                           as LifexMin,
-      max( asn.lifex )                           as LifexMax,
-      max( asn.unit_sell_price )                 as UnitSellPrice,
-      sum( cast( asn.lfimg as abap.dec(13,3) ) ) as CantidadFactura,
+      dlv.DocumentDate,
+      cast( count(*) as abap.int4 )                                                    as AsnCount,
+      min( asn.lifex )                                                                 as LifexMin,
+      max( asn.lifex )                                                                 as LifexMax,
+      max( asn.unit_sell_price )                                                       as UnitSellPrice,
+      cast( max( dlv.ActualDeliveryQuantity ) as abap.dec(13,3) )                      as CantidadFactura,
       cast(
         case
           when min( asn.unit_sell_price ) = max( asn.unit_sell_price )
             then cast( max( asn.unit_sell_price ) as abap.dec(16,5) )
           else cast( 0 as abap.dec(16,5) )
         end
-        as abap.dec(16,5) )                      as PrecioUnitarioVigente,
-      cast(
-        case
-          when min( asn.bldat ) = max( asn.bldat )
-            then max( asn.bldat )
-          else cast( '00000000' as abap.dats )
-        end
-        as bldat )                               as FechaFactura
+        as abap.dec(16,5) )                                                            as PrecioUnitarioVigente
 }
 group by
+  dlv.DeliveryDocument,
   dlv.PurchaseOrder,
-  dlv.PurchaseOrderItem
+  dlv.PurchaseOrderItem,
+  dlv.DocumentDate
