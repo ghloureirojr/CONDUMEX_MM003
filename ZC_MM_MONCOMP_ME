@@ -19,18 +19,30 @@ annotate entity ZC_MM_MONCOMP with
   @UI.selectionField: [ { position: 50 } ]
   @Consumption.valueHelpDefinition: [{ entity: { name: 'ZI_MM_WRAPPER_EKKO', element: 'PurchaseOrder' } }]
   OC;
+
   @EndUserText.label: 'Posición'
   @UI.lineItem: [ { position: 20 } ]
   @UI.identification: [ { position: 20 } ]
   Posicion;
+
+  @EndUserText.label: 'Entrega'
+  @UI.lineItem: [ { position: 25 } ]
+  @UI.identification: [ { position: 25 } ]
+  @UI.selectionField: [ { position: 55 } ]
+  @Consumption.valueHelpDefinition: [{ entity: { name: 'I_DeliveryDocument', element: 'DeliveryDocument' } }]
+  DeliveryDocument;
+
   @EndUserText.label: 'Fecha OC'
   @UI.selectionField: [ { position: 60 } ]
   @Consumption.filter: { selectionType: #INTERVAL }
   FechaOC;
+
   @UI.hidden: true
   StorageLoc;
+
   @UI.hidden: true
   ItemCateg;
+
   @EndUserText.label: 'Sociedad'
   @UI.lineItem: [ { position: 30 } ]
   @UI.identification: [ { position: 30 } ]
@@ -38,108 +50,163 @@ annotate entity ZC_MM_MONCOMP with
   @Consumption.filter.mandatory: true
   @Consumption.valueHelpDefinition: [{ entity: { name: 'I_CompanyCode', element: 'CompanyCode' } }]
   Sociedad;
+
   @EndUserText.label: 'Material'
   @UI.lineItem: [ { position: 40 } ]
   @UI.identification: [ { position: 40 } ]
   @UI.selectionField: [ { position: 30 } ]
   @Consumption.valueHelpDefinition: [{ entity: { name: 'ZI_MM_PRODUCT_VH_MC_ASN', element: 'Product' } }]
   Material;
+
   @EndUserText.label: 'Descripción Material'
   @UI.lineItem: [ { position: 50 } ]
   @UI.identification: [ { position: 50 } ]
   MatDesc;
+
   @EndUserText.label: 'Proveedor'
   @UI.lineItem: [ { position: 60 } ]
   @UI.identification: [ { position: 60 } ]
   @UI.selectionField: [ { position: 40 } ]
   @Consumption.valueHelpDefinition: [{ entity: { name: 'I_Supplier', element: 'Supplier' } }]
   Proveedor;
+
   @EndUserText.label: 'Nombre Proveedor'
   @UI.lineItem: [ { position: 70 } ]
   @UI.identification: [ { position: 70 } ]
   NombreProveedor;
+
   @EndUserText.label: 'Centro'
   @UI.lineItem: [ { position: 80 } ]
   @UI.identification: [ { position: 80 } ]
   @UI.selectionField: [ { position: 20 } ]
   @Consumption.valueHelpDefinition: [{ entity: { name: 'I_Plant', element: 'Plant' } }]
   Centro;
+
   @EndUserText.label: 'Cantidad Pedida'
   @UI.lineItem: [ { position: 90 } ]
   @UI.identification: [ { position: 90 } ]
   CantidadPedida;
+
   @UI.hidden: true
   CantidadPedidaUnidad;
+
   @EndUserText.label: 'Cantidad Recibida'
   @UI.lineItem: [ { position: 100 } ]
   @UI.identification: [ { position: 100 } ]
   CantidadRecebida;
+
   @UI.hidden: true
   CantidadRecebidaUnidad;
+
   @EndUserText.label: 'Cantidad Pendiente'
   @UI.lineItem: [ { position: 110 } ]
   @UI.identification: [ { position: 110 } ]
   CantidadPendiente;
+
   @EndUserText.label: 'Precio OC'
   @UI.lineItem: [ { position: 120 } ]
   @UI.identification: [ { position: 120 } ]
   PrecioOC;
+
   @EndUserText.label: 'Moneda OC'
   @UI.lineItem: [ { position: 130 } ]
   @UI.identification: [ { position: 130 } ]
   MonedaOC;
+
   @EndUserText.label: 'Precio ASN'
   @UI.lineItem: [ { position: 140 } ]
   @UI.identification: [ { position: 140 } ]
   PrecioASN;
+
+  @EndUserText.label: 'Precio unitario vigente'
+  @UI.lineItem: [ { position: 142 } ]
+  @UI.identification: [ { position: 142 } ]
+  PrecioUnitarioVigente;
+
   @EndUserText.label: 'Precio NFM'
   @UI.lineItem: [ { position: 145, importance: #HIGH } ]
   @UI.identification: [ { position: 145 } ]
   PrecioNfm;
+
+  @EndUserText.label: 'Unidad precio'
+  @UI.lineItem: [ { position: 146 } ]
+  @UI.identification: [ { position: 146 } ]
+  UnidadPrecio;
+
+  @EndUserText.label: 'Unidad base'
+  @UI.lineItem: [ { position: 147 } ]
+  @UI.identification: [ { position: 147 } ]
+  UnidadBase;
+
+  @UI.hidden: true
+  FactorNfm;
+
   @EndUserText.label: 'Moneda ASN'
   @UI.lineItem: [ { position: 150 } ]
   @UI.identification: [ { position: 150 } ]
   MonedaASN;
+
   @EndUserText.label: 'Precio Inforecord'
   @UI.lineItem: [ { position: 160 } ]
   @UI.identification: [ { position: 160 } ]
   PrecioInforec;
+
   @UI.hidden: true
   MonedaInforec;
+
   @EndUserText.label: 'Cantidad'
   @UI.lineItem: [ { position: 170 } ]
   @UI.identification: [ { position: 170 } ]
   Cantidad;
+
   @EndUserText.label: 'Diferencia OC-ASN'
   @UI.lineItem: [ { position: 180 } ]
   @UI.identification: [ { position: 180 } ]
   DiferenciaOcAsn;
+
   @EndUserText.label: 'Diferencia ASN-Inforecord'
   @UI.lineItem: [ { position: 190 } ]
   @UI.identification: [ { position: 190 } ]
   DiferenciaAsnInforec;
+
   @EndUserText.label: 'Estado'
   @UI.lineItem: [ { position: 200 } ]
   @UI.identification: [ { position: 200 } ]
   Estado;
+
   @EndUserText.label: 'Usuario Aprobador'
   @UI.lineItem: [ { position: 210 } ]
   @UI.identification: [ { position: 210 } ]
   UsuarioAprobador;
+
   @EndUserText.label: 'Fecha Aprobación'
   @UI.lineItem: [ { position: 220 } ]
   @UI.identification: [ { position: 220 } ]
   FechaAprobacion;
+
   @UI.hidden: true
   TipoDocumento;
+
   @UI.hidden: true
   IsNfm;
+
   @EndUserText.label: 'Nota / Motivo'
   @UI.lineItem: [ { position: 230 } ]
   @UI.identification: [ { position: 230 } ]
   Nota;
+
   @EndUserText.label: 'Fecha Factura'
   @UI.lineItem: [ { position: 240 } ]
   @UI.identification: [ { position: 240 } ]
   FechaFactura;
+
+  @EndUserText.label: 'Factura / Remisión'
+  @UI.lineItem: [ { position: 242 } ]
+  @UI.identification: [ { position: 242 } ]
+  FacturaRemision;
+
+  @EndUserText.label: 'Cantidad factura'
+  @UI.lineItem: [ { position: 244 } ]
+  @UI.identification: [ { position: 244 } ]
+  CantidadFactura;
 }
