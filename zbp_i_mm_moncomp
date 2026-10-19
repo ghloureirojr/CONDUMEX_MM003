@@ -15,6 +15,7 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
            END OF ty_excel,
            BEGIN OF ty_posicion,
              posicion  TYPE vdm_purchaseorderitem,
+             vbeln     TYPE vbeln_vl,
              precioOC  TYPE zmm_moncomp_log-precio_anterior,
              precioASN TYPE zmm_moncomp_log-precio_asn,
              monedaASN TYPE waers,
@@ -92,8 +93,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
     SELECT *
       FROM zi_mm_moncomp
       FOR ALL ENTRIES IN @keys
-      WHERE oc       = @keys-oc
-        AND Posicion = @keys-Posicion
+      WHERE oc               = @keys-oc
+        AND Posicion         = @keys-Posicion
+        AND DeliveryDocument = @keys-DeliveryDocument
       INTO CORRESPONDING FIELDS OF TABLE @result.
   ENDMETHOD.
 
@@ -127,6 +129,17 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           lv_fecha         TYPE d,
           lv_fecha_raw     TYPE string,
           lv_fecha_ok      TYPE abap_bool.
+
+    TYPES: BEGIN OF ty_excel_ok,
+             oc      TYPE vdm_purchaseorder,
+             pos     TYPE vdm_purchaseorderitem,
+             factura TYPE c LENGTH 35,
+             precio  TYPE zmm_moncomp_log-precio_asn,
+             moneda  TYPE waers,
+             fecha   TYPE d,
+           END OF ty_excel_ok.
+
+    DATA lt_excel_ok TYPE STANDARD TABLE OF ty_excel_ok.
 
     IF keys[ 1 ]-%param-mimeType <> 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'.
       failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
@@ -425,6 +438,26 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             ENDTRY.
           ENDIF.
 
+          IF <fs_excel>-factura IS INITIAL.
+            failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
+            reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
+                                                %msg = new_message_with_text(
+                                                         severity = if_abap_behv_message=>severity-error
+                                                         text     = 'Factura obligatoria' ) ) ).
+            CLEAR lcl_buffer=>gt_log.
+            RETURN.
+          ENDIF.
+
+          IF <fs_excel>-fechafactura IS INITIAL.
+            failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
+            reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
+                                                %msg = new_message_with_text(
+                                                         severity = if_abap_behv_message=>severity-error
+                                                         text     = 'Fecha de factura obligatoria' ) ) ).
+            CLEAR lcl_buffer=>gt_log.
+            RETURN.
+          ENDIF.
+
           IF <fs_excel>-fechafactura IS NOT INITIAL.
             lv_fecha_raw = condense( val = <fs_excel>-fechafactura ).
 
@@ -462,28 +495,101 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             ENDIF.
           ENDIF.
 
-          lv_utc = utclong_add( val = utclong_current( ) seconds = 1 ).
-
-          APPEND VALUE #( client        = sy-mandt
-                          oc            = <fs_excel>-oc
-                          posicion      = <fs_excel>-pos
-                          usuario       = cl_abap_context_info=>get_user_technical_name( )
-                          fecha_hora    = cl_abap_tstmp=>utclong2tstmp( lv_utc )
-                          precio_asn    = lv_precio
-                          moneda_asn    = <fs_excel>-moneda
-                          nota          = <fs_excel>-factura
-                          fecha_factura = lv_fecha ) TO lcl_buffer=>gt_log.
+          APPEND VALUE #( oc      = <fs_excel>-oc
+                          pos     = <fs_excel>-pos
+                          factura = <fs_excel>-factura
+                          precio  = lv_precio
+                          moneda  = <fs_excel>-moneda
+                          fecha   = lv_fecha ) TO lt_excel_ok.
         ENDIF.
       ENDLOOP.
+
+      TYPES: BEGIN OF ty_entrega,
+               oc       TYPE vdm_purchaseorder,
+               posicion TYPE vdm_purchaseorderitem,
+               vbeln    TYPE vbeln_vl,
+             END OF ty_entrega.
+
+      DATA: lt_entrega TYPE SORTED TABLE OF ty_entrega WITH UNIQUE KEY oc posicion vbeln,
+            lt_zasn    TYPE STANDARD TABLE OF zi_mm_zasn_poitem,
+            lv_hits    TYPE i,
+            lv_vbeln   TYPE vbeln_vl.
+
+      SELECT *                                "#EC CI_ALL_FIELDS_NEEDED
+        FROM zi_mm_zasn_poitem
+        FOR ALL ENTRIES IN @lt_excel_ok
+        WHERE PurchaseOrder     = @lt_excel_ok-oc
+          AND PurchaseOrderItem = @lt_excel_ok-pos
+        INTO TABLE @lt_zasn.
+
+      LOOP AT lt_excel_ok ASSIGNING FIELD-SYMBOL(<fs_ok>).
+        CLEAR: lv_hits, lv_vbeln.
+
+        LOOP AT lt_zasn ASSIGNING FIELD-SYMBOL(<fs_zasn>)
+            WHERE PurchaseOrder     = <fs_ok>-oc
+              AND PurchaseOrderItem = <fs_ok>-pos
+              AND LifexMin          = <fs_ok>-factura
+              AND DocumentDate      = <fs_ok>-fecha.
+          lv_hits  = lv_hits + 1.
+          lv_vbeln = <fs_zasn>-DeliveryDocument.
+        ENDLOOP.
+
+        IF lv_hits = 0.
+          failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
+          reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
+                                              %msg = new_message_with_text(
+                                                       severity = if_abap_behv_message=>severity-error
+                                                       text     = |No hay entrega para OC { <fs_ok>-oc } pos { <fs_ok>-pos }| ) ) ).
+          CLEAR lcl_buffer=>gt_log.
+          RETURN.
+        ELSEIF lv_hits > 1.
+          failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
+          reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
+                                              %msg = new_message_with_text(
+                                                       severity = if_abap_behv_message=>severity-error
+                                                       text     = |Hay más de una entrega para OC { <fs_ok>-oc } pos { <fs_ok>-pos }| ) ) ).
+          CLEAR lcl_buffer=>gt_log.
+          RETURN.
+        ENDIF.
+
+        READ TABLE lt_entrega TRANSPORTING NO FIELDS
+            WITH KEY oc       = <fs_ok>-oc
+                     posicion = <fs_ok>-pos
+                     vbeln    = lv_vbeln.
+        IF sy-subrc IS INITIAL.
+          failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
+          reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
+                                              %msg = new_message_with_text(
+                                                       severity = if_abap_behv_message=>severity-error
+                                                       text     = |Dos líneas corresponden a la misma entrega { lv_vbeln }| ) ) ).
+          CLEAR lcl_buffer=>gt_log.
+          RETURN.
+        ENDIF.
+
+        INSERT VALUE #( oc       = <fs_ok>-oc
+                        posicion = <fs_ok>-pos
+                        vbeln    = lv_vbeln ) INTO TABLE lt_entrega.
+
+        lv_utc = utclong_add( val = utclong_current( ) seconds = 1 ).
+
+        APPEND VALUE #( client        = sy-mandt
+                        oc            = <fs_ok>-oc
+                        posicion      = <fs_ok>-pos
+                        vbeln         = lv_vbeln
+                        usuario       = cl_abap_context_info=>get_user_technical_name( )
+                        fecha_hora    = cl_abap_tstmp=>utclong2tstmp( lv_utc )
+                        precio_asn    = <fs_ok>-precio
+                        moneda_asn    = <fs_ok>-moneda
+                        nota          = <fs_ok>-factura
+                        fecha_factura = <fs_ok>-fecha ) TO lcl_buffer=>gt_log.
+      ENDLOOP.
+
     ENDIF.
   ENDMETHOD.
 
   METHOD authPrecioASN.
-    DATA: lt_hist       TYPE SORTED TABLE OF   zi_oc_history_sum        WITH NON-UNIQUE KEY PurchaseOrder PurchaseOrderItem,
-          lt_asn        TYPE SORTED TABLE OF   zi_mm_po_delivery_exists WITH NON-UNIQUE KEY PurchaseOrder PurchaseOrderItem,
-          lt_id         TYPE STANDARD TABLE OF lcl_buffer=>ty_id        WITH UNIQUE HASHED KEY id COMPONENTS oc,
+    DATA: lt_id         TYPE STANDARD TABLE OF lcl_buffer=>ty_id        WITH UNIQUE HASHED KEY id COMPONENTS oc,
           lt_change_pos TYPE STANDARD TABLE OF zcl_mm_wrapper_po_change=>ty_param,
-          lt_new_pos    TYPE STANDARD TABLE OF zcl_mm_wrapper_po_change=>ty_param,
           lt_result     TYPE STANDARD TABLE OF zcl_mm_parallel_po_change=>ty_return,
           lt_sag        TYPE HASHED TABLE OF zcl_mm_wrapper_sag_change=>ty_param
                           WITH UNIQUE KEY iv_purchasingdocument,
@@ -510,19 +616,12 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
     FIELD-SYMBOLS: <fs_id>             TYPE lcl_buffer=>ty_id,
                    <fs_sag_id>         TYPE lcl_buffer=>ty_id,
                    <fs_pos>            TYPE lcl_buffer=>ty_posicion,
-                   <fs_new_pos_result> TYPE zcl_mm_wrapper_po_change=>ty_posicion,
                    <fs_change_pos>     TYPE zcl_mm_wrapper_po_change=>ty_param,
                    <fs_br>             TYPE bapiret2.
 
-    TYPES: BEGIN OF ty_precio_nueva,
-             oc     TYPE vdm_purchaseorder,
-             precio TYPE zmm_moncomp_log-precio_asn,
-           END OF ty_precio_nueva.
-    DATA: lt_precio_nueva TYPE STANDARD TABLE OF ty_precio_nueva,
-          lv_nueva_idx    TYPE i,
-          lv_nueva_n      TYPE i,
-          lv_precio_ok    TYPE abap_bool,
-          lv_precio_log   TYPE zmm_moncomp_log-precio_asn.
+    CONSTANTS: lc_msg_dup TYPE string VALUE
+      'Una misma posición de un documento de compra no puede modificarse más que una vez a la vez, ' &&
+      'modifique el precio una vez concluya el ciclo y si es necesario entre de nuevo a la app'.
 
     CLEAR: lcl_buffer=>gt_sag, lcl_buffer=>gt_sag_id.
 
@@ -533,21 +632,63 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
     SORT lt_moncomp BY oc Posicion.
 
-    SELECT *
-      FROM zi_oc_history_sum
-      FOR ALL ENTRIES IN @keys
-      WHERE PurchaseOrder     = @keys-oc
-        AND PurchaseOrderItem = @keys-Posicion
-      INTO TABLE @lt_hist.
+    TYPES: BEGIN OF ty_pos_cnt,
+             oc       TYPE vdm_purchaseorder,
+             posicion TYPE vdm_purchaseorderitem,
+             cnt      TYPE i,
+           END OF ty_pos_cnt.
 
-    SELECT *
-      FROM zi_mm_po_delivery_exists
-      FOR ALL ENTRIES IN @keys
-      WHERE PurchaseOrder     = @keys-oc
-        AND PurchaseOrderItem = @keys-Posicion
-      INTO TABLE @lt_asn.
+    DATA: lt_pos_cnt TYPE SORTED TABLE OF ty_pos_cnt WITH UNIQUE KEY oc posicion,
+          lt_dup     TYPE SORTED TABLE OF ty_pos_cnt WITH UNIQUE KEY oc posicion.
+
+    LOOP AT lt_moncomp ASSIGNING FIELD-SYMBOL(<fs_cnt_row>).
+      READ TABLE lt_pos_cnt ASSIGNING FIELD-SYMBOL(<fs_pos_cnt>)
+          WITH TABLE KEY oc       = <fs_cnt_row>-oc
+                         posicion = <fs_cnt_row>-Posicion.
+      IF sy-subrc IS INITIAL.
+        <fs_pos_cnt>-cnt = <fs_pos_cnt>-cnt + 1.
+      ELSE.
+        INSERT VALUE #( oc       = <fs_cnt_row>-oc
+                        posicion = <fs_cnt_row>-Posicion
+                        cnt      = 1 ) INTO TABLE lt_pos_cnt.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT lt_pos_cnt ASSIGNING <fs_pos_cnt> WHERE cnt > 1.
+      INSERT <fs_pos_cnt> INTO TABLE lt_dup.
+    ENDLOOP.
+
+    LOOP AT lt_moncomp ASSIGNING <fs_cnt_row>.
+      READ TABLE lt_dup TRANSPORTING NO FIELDS
+          WITH TABLE KEY oc       = <fs_cnt_row>-oc
+                         posicion = <fs_cnt_row>-Posicion.
+      IF sy-subrc IS NOT INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                               %tky = keys[ KEY id %key-oc               = <fs_cnt_row>-oc
+                                                                   %key-Posicion         = <fs_cnt_row>-Posicion
+                                                                   %key-DeliveryDocument = <fs_cnt_row>-DeliveryDocument ]-%tky
+                                               %msg = new_message_with_text(
+                                                        severity = if_abap_behv_message=>severity-error
+                                                        text     = lc_msg_dup ) ) ).
+
+      failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                             %tky        = keys[ KEY id %key-oc               = <fs_cnt_row>-oc
+                                                                        %key-Posicion         = <fs_cnt_row>-Posicion
+                                                                        %key-DeliveryDocument = <fs_cnt_row>-DeliveryDocument ]-%tky
+                                             %fail-cause = if_abap_behv=>cause-unspecific ) ).
+    ENDLOOP.
 
     LOOP AT lt_moncomp ASSIGNING FIELD-SYMBOL(<fs_moncomp>).
+      READ TABLE lt_dup TRANSPORTING NO FIELDS
+          WITH TABLE KEY oc       = <fs_moncomp>-oc
+                         posicion = <fs_moncomp>-Posicion.
+      IF sy-subrc IS INITIAL.
+        CONTINUE.
+      ENDIF.
+
       GET TIME STAMP FIELD lv_timestamp.
 
       IF <fs_moncomp>-oc <> lv_last_oc.
@@ -570,14 +711,16 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           APPEND VALUE #( client     = sy-mandt
                           oc         = <fs_moncomp>-oc
                           posicion   = <fs_moncomp>-Posicion
+                          vbeln      = <fs_moncomp>-DeliveryDocument
                           usuario    = cl_abap_context_info=>get_user_technical_name( )
                           fecha_hora = lv_timestamp
                           accion     = '01'
                           estado     = '03' ) TO lcl_buffer=>gt_log.
 
           reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                   %tky = keys[ KEY id %key-oc       = <fs_moncomp>-oc
-                                                                       %key-Posicion = <fs_moncomp>-Posicion ]-%tky
+                                                   %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                       %key-Posicion         = <fs_moncomp>-Posicion
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%tky
                                                    %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                        number   = 015
                                                                        v1       = <fs_moncomp>-oc
@@ -589,8 +732,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
         IF <fs_moncomp>-FechaFactura IS INITIAL.
           reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                   %tky = keys[ KEY id %key-oc       = <fs_moncomp>-oc
-                                                                       %key-Posicion = <fs_moncomp>-Posicion ]-%tky
+                                                   %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                       %key-Posicion         = <fs_moncomp>-Posicion
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%tky
                                                    %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                        number   = 030
                                                                        v1       = <fs_moncomp>-oc
@@ -629,6 +773,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             WITH TABLE KEY id COMPONENTS oc = <fs_moncomp>-oc.
 
         APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
+                        vbeln     = <fs_moncomp>-DeliveryDocument
                         precioOC  = <fs_moncomp>-PrecioOC
                         precioASN = <fs_moncomp>-PrecioASN
                         monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_sag_id>-t_pos.
@@ -641,8 +786,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       IF <fs_moncomp>-IsNfm = 'X'.
         IF <fs_moncomp>-FechaFactura IS INITIAL.
           reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                   %tky = keys[ KEY id %key-oc       = <fs_moncomp>-oc
-                                                                       %key-Posicion = <fs_moncomp>-Posicion ]-%tky
+                                                   %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                       %key-Posicion         = <fs_moncomp>-Posicion
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%tky
                                                    %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                        number   = 030
                                                                        v1       = <fs_moncomp>-oc
@@ -659,6 +805,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                         po_itemx = abap_true ) TO <fs_change_pos>-t_poitemx.
 
         APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
+                        vbeln     = <fs_moncomp>-DeliveryDocument
                         precioOC  = <fs_moncomp>-PrecioOC
                         precioASN = <fs_moncomp>-PrecioASN
                         monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
@@ -668,122 +815,58 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
-      READ TABLE lt_hist TRANSPORTING NO FIELDS
-          WITH TABLE KEY PurchaseOrder     = <fs_moncomp>-oc
-                         PurchaseOrderItem = <fs_moncomp>-Posicion.
+      IF <fs_moncomp>-MonedaOC = <fs_moncomp>-MonedaASN.
+        APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
+                        vbeln     = <fs_moncomp>-DeliveryDocument
+                        precioOC  = <fs_moncomp>-PrecioOC
+                        precioASN = <fs_moncomp>-PrecioASN
+                        monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
 
-      IF sy-subrc IS INITIAL.
-        IF <fs_moncomp>-CantidadRecebida < <fs_moncomp>-CantidadPedida.
-          APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
-                          precioOC  = <fs_moncomp>-PrecioOC
-                          precioASN = <fs_moncomp>-PrecioASN
-                          monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
-
-          APPEND VALUE #( oc     = <fs_moncomp>-oc
-                          precio = <fs_moncomp>-PrecioOC ) TO lt_precio_nueva.
-
-          APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
-                          no_more_gr = abap_true ) TO <fs_change_pos>-t_poitem.
-
-          APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
-                          po_itemx   = abap_true
-                          no_more_gr = abap_true ) TO <fs_change_pos>-t_poitemx.
-
-          APPEND INITIAL LINE TO lt_new_pos ASSIGNING FIELD-SYMBOL(<fs_new_pos>).
-
-          <fs_new_pos>-iv_purchaseorder       = <fs_moncomp>-oc.
-          <fs_new_pos>-is_poheader-po_number  = <fs_moncomp>-oc.
-          <fs_new_pos>-is_poheaderx-po_number = abap_true.
-
-          CLEAR: lv_peinh, lv_monto.
-          lv_peinh = <fs_moncomp>-Cantidad.
-          IF lv_peinh > 0.
-            lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioOC ) * lv_peinh dec = 2 ).
-          ELSE.
-            lv_monto = <fs_moncomp>-PrecioOC.
-          ENDIF.
-
-          APPEND VALUE #( po_item    = ''
-                          short_text = <fs_moncomp>-MatDesc
-                          material   = <fs_moncomp>-Material
-                          plant      = <fs_moncomp>-Centro
-                          stge_loc   = <fs_moncomp>-StorageLoc
-                          item_cat   = <fs_moncomp>-ItemCateg
-                          net_price  = lv_monto
-                          price_unit = lv_peinh
-                          quantity   = <fs_moncomp>-CantidadPedida - <fs_moncomp>-CantidadRecebida
-                          po_unit    = <fs_moncomp>-CantidadPedidaUnidad ) TO <fs_new_pos>-t_poitem.
-
-          lv_run_bapi = abap_true.
-        ENDIF.
-      ELSE.
-        READ TABLE lt_asn ASSIGNING FIELD-SYMBOL(<fs_asn>)
-            WITH TABLE KEY PurchaseOrder     = <fs_moncomp>-oc
-                           PurchaseOrderItem = <fs_moncomp>-Posicion.
-
-        IF sy-subrc IS INITIAL.
-          IF <fs_moncomp>-MonedaOC = <fs_moncomp>-MonedaASN.
-            APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
-                            precioOC  = <fs_moncomp>-PrecioOC
-                            precioASN = <fs_moncomp>-PrecioASN
-                            monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
-
-            CLEAR: lv_peinh, lv_monto.
-            lv_peinh = <fs_moncomp>-Cantidad.
-            IF lv_peinh > 0.
-              lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh dec = 2 ).
-            ELSE.
-              lv_monto = <fs_moncomp>-PrecioASN.
-            ENDIF.
-
-            APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
-                            net_price  = lv_monto
-                            price_unit = lv_peinh ) TO <fs_change_pos>-t_poitem.
-
-            APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
-                            po_itemx   = abap_true
-                            net_price  = abap_true
-                            price_unit = abap_true ) TO <fs_change_pos>-t_poitemx.
-
-            lv_run_bapi = abap_true.
-          ELSE.
-            APPEND VALUE #( client     = sy-mandt
-                            oc         = <fs_moncomp>-oc
-                            posicion   = <fs_moncomp>-Posicion
-                            usuario    = cl_abap_context_info=>get_user_technical_name( )
-                            fecha_hora = lv_timestamp
-                            accion     = '01'
-                            estado     = '03' ) TO lcl_buffer=>gt_log.
-
-            reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                     %tky = keys[ KEY id %key-oc       = <fs_moncomp>-oc
-                                                                         %key-Posicion = <fs_moncomp>-Posicion ]-%tky
-                                                     %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                         number   = 015
-                                                                         v1       = <fs_moncomp>-oc
-                                                                         v2       = <fs_moncomp>-Posicion
-                                                                         severity = if_abap_behv_message=>severity-error ) ) ).
-          ENDIF.
+        CLEAR: lv_peinh, lv_monto.
+        lv_peinh = <fs_moncomp>-Cantidad.
+        IF lv_peinh > 0.
+          lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh dec = 2 ).
         ELSE.
-          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                   %tky = keys[ KEY id %key-oc       = <fs_moncomp>-oc
-                                                                       %key-Posicion = <fs_moncomp>-Posicion ]-%tky
-                                                   %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                       number   = 001
-                                                                       v1       = <fs_moncomp>-oc
-                                                                       v2       = <fs_moncomp>-Posicion
-                                                                       severity = if_abap_behv_message=>severity-error ) ) ).
+          lv_monto = <fs_moncomp>-PrecioASN.
         ENDIF.
-      ENDIF.
 
+        APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
+                        net_price  = lv_monto
+                        price_unit = lv_peinh ) TO <fs_change_pos>-t_poitem.
+
+        APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
+                        po_itemx   = abap_true
+                        net_price  = abap_true
+                        price_unit = abap_true ) TO <fs_change_pos>-t_poitemx.
+
+        lv_run_bapi = abap_true.
+      ELSE.
+        APPEND VALUE #( client     = sy-mandt
+                        oc         = <fs_moncomp>-oc
+                        posicion   = <fs_moncomp>-Posicion
+                        vbeln      = <fs_moncomp>-DeliveryDocument
+                        usuario    = cl_abap_context_info=>get_user_technical_name( )
+                        fecha_hora = lv_timestamp
+                        accion     = '01'
+                        estado     = '03' ) TO lcl_buffer=>gt_log.
+
+        reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                 %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                     %key-Posicion         = <fs_moncomp>-Posicion
+                                                                     %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%tky
+                                                 %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                     number   = 015
+                                                                     v1       = <fs_moncomp>-oc
+                                                                     v2       = <fs_moncomp>-Posicion
+                                                                     severity = if_abap_behv_message=>severity-error ) ) ).
+      ENDIF.
       CLEAR lv_timestamp.
     ENDLOOP.
 
     IF lv_run_bapi = abap_true.
       CLEAR lt_in.
 
-      DATA(ls_data) = VALUE zcl_mm_parallel_po_change=>ty_data( change_pos = lt_change_pos
-                                                                new_pos    = lt_new_pos ).
+      DATA(ls_data) = VALUE zcl_mm_parallel_po_change=>ty_data( change_pos = lt_change_pos ).
 
       EXPORT data = ls_data TO DATA BUFFER lv_buffer.
       INSERT lv_buffer INTO TABLE lt_in.
@@ -832,150 +915,73 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 ENDIF.
               ENDLOOP.
 
-              IF <fs_result>-t_new_pos IS NOT INITIAL.
-                LOOP AT <fs_result>-t_new_pos ASSIGNING <fs_new_pos_result>.
-                  GET TIME STAMP FIELD lv_timestamp.
+              LOOP AT <fs_id>-t_pos ASSIGNING <fs_pos>.
+                GET TIME STAMP FIELD lv_timestamp.
 
-                  APPEND VALUE #( client     = sy-mandt
-                                  oc         = <fs_result>-oc
-                                  posicion   = <fs_new_pos_result>-posicion
-                                  usuario    = cl_abap_context_info=>get_user_technical_name( )
-                                  fecha_hora = lv_timestamp ) TO lcl_buffer=>gt_log.
+                APPEND VALUE #( client     = sy-mandt
+                                oc         = <fs_result>-oc
+                                posicion   = <fs_pos>-posicion
+                                vbeln      = <fs_pos>-vbeln
+                                usuario    = cl_abap_context_info=>get_user_technical_name( )
+                                fecha_hora = lv_timestamp ) TO lcl_buffer=>gt_log.
 
-                  IF lv_err_txt IS INITIAL.
-                    reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                             %tky = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                                                 %key-Posicion = <fs_new_pos_result>-posicion ]-%tky
-                                                             %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                                 number   = 018
-                                                                                 v1       = <fs_result>-oc
-                                                                                 v2       = <fs_new_pos_result>-posicion
-                                                                                 severity = if_abap_behv_message=>severity-error ) ) ).
-                  ELSE.
-                    reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                             %tky = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                                                 %key-Posicion = <fs_new_pos_result>-posicion ]-%tky
-                                                             %msg = new_message_with_text(
-                                                                      severity = if_abap_behv_message=>severity-error
-                                                                      text     = lv_err_txt ) ) ).
-                  ENDIF.
-
-                  failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
-                                                         %tky        = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                                                    %key-Posicion = <fs_new_pos_result>-posicion ]-%tky
-                                                         %fail-cause = if_abap_behv=>cause-unspecific ) ).
-                  lv_bapi_msg = abap_true.
-                  CLEAR lv_timestamp.
-                ENDLOOP.
-              ELSE.
-                LOOP AT <fs_id>-t_pos ASSIGNING <fs_pos>.
-                  GET TIME STAMP FIELD lv_timestamp.
-
-                  APPEND VALUE #( client     = sy-mandt
-                                  oc         = <fs_result>-oc
-                                  posicion   = <fs_pos>-posicion
-                                  usuario    = cl_abap_context_info=>get_user_technical_name( )
-                                  fecha_hora = lv_timestamp ) TO lcl_buffer=>gt_log.
-
-                  IF lv_err_txt IS INITIAL.
-                    reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                             %tky = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                                                 %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                             %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                                 number   = 016
-                                                                                 v1       = <fs_result>-oc
-                                                                                 v2       = <fs_pos>-posicion
-                                                                                 severity = if_abap_behv_message=>severity-error ) ) ).
-                  ELSE.
-                    reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                             %tky = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                                                 %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                             %msg = new_message_with_text(
-                                                                      severity = if_abap_behv_message=>severity-error
-                                                                      text     = lv_err_txt ) ) ).
-                  ENDIF.
-
-                  failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
-                                                         %tky        = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                                                    %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                         %fail-cause = if_abap_behv=>cause-unspecific ) ).
-                  lv_bapi_msg = abap_true.
-                  CLEAR lv_timestamp.
-                ENDLOOP.
-              ENDIF.
-            ELSE.
-              IF <fs_result>-t_new_pos IS NOT INITIAL.
-                LOOP AT <fs_result>-t_new_pos ASSIGNING <fs_new_pos_result>.
-                  GET TIME STAMP FIELD lv_timestamp.
-
-                  lv_nueva_idx = sy-tabix.
-                  CLEAR: lv_nueva_n, lv_precio_ok, lv_precio_log.
-                  LOOP AT lt_precio_nueva ASSIGNING FIELD-SYMBOL(<fs_precio_nueva>)
-                      WHERE oc = <fs_result>-oc.
-                    lv_nueva_n += 1.
-                    IF lv_nueva_n = lv_nueva_idx.
-                      lv_precio_log = <fs_precio_nueva>-precio.
-                      lv_precio_ok  = abap_true.
-                      EXIT.
-                    ENDIF.
-                  ENDLOOP.
-
-                  IF lv_precio_ok = abap_false.
-                    lv_precio_log = COND #( WHEN <fs_id>-t_pos[ 1 ]-precioASN IS NOT INITIAL
-                                            THEN <fs_id>-t_pos[ 1 ]-precioASN
-                                            ELSE <fs_id>-t_pos[ 1 ]-precioOC ).
-                  ENDIF.
-
-                  APPEND VALUE #( client       = sy-mandt
-                                  oc           = <fs_result>-oc
-                                  posicion     = <fs_new_pos_result>-posicion
-                                  usuario      = cl_abap_context_info=>get_user_technical_name( )
-                                  fecha_hora   = lv_timestamp
-                                  precio_asn   = lv_precio_log
-                                  moneda_asn   = <fs_id>-t_pos[ 1 ]-monedaASN
-                                  accion       = '01'
-                                  estado       = '06'
-                                  precio_nuevo = lv_precio_log ) TO lcl_buffer=>gt_log.
-
+                IF lv_err_txt IS INITIAL.
                   reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                           %tky = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                                               %key-Posicion = <fs_new_pos_result>-posicion ]-%tky
+                                                           %tky = keys[ KEY id %key-oc               = <fs_result>-oc
+                                                                               %key-Posicion         = <fs_pos>-posicion
+                                                                               %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
                                                            %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                               number   = 019
-                                                                               v1       = <fs_result>-oc
-                                                                               v2       = <fs_new_pos_result>-posicion
-                                                                               severity = if_abap_behv_message=>severity-success ) ) ).
-                  lv_bapi_msg = abap_true.
-                  CLEAR lv_timestamp.
-                ENDLOOP.
-              ELSE.
-                LOOP AT <fs_id>-t_pos ASSIGNING <fs_pos>.
-                  GET TIME STAMP FIELD lv_timestamp.
-
-                  APPEND VALUE #( client          = sy-mandt
-                                  oc              = <fs_result>-oc
-                                  posicion        = <fs_pos>-posicion
-                                  usuario         = cl_abap_context_info=>get_user_technical_name( )
-                                  fecha_hora      = lv_timestamp
-                                  precio_asn      = <fs_pos>-PrecioASN
-                                  moneda_asn      = <fs_pos>-MonedaASN
-                                  accion          = '01'
-                                  estado          = '06'
-                                  precio_anterior = <fs_pos>-preciooc
-                                  precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
-
-                  reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                           %tky = keys[ KEY id %key-oc       = <fs_result>-oc
-                                                                               %key-Posicion = <fs_pos>-posicion ]-%tky
-                                                           %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                               number   = 017
+                                                                               number   = 016
                                                                                v1       = <fs_result>-oc
                                                                                v2       = <fs_pos>-posicion
-                                                                               severity = if_abap_behv_message=>severity-success ) ) ).
-                  lv_bapi_msg = abap_true.
-                  CLEAR lv_timestamp.
-                ENDLOOP.
-              ENDIF.
+                                                                               severity = if_abap_behv_message=>severity-error ) ) ).
+                ELSE.
+                  reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                           %tky = keys[ KEY id %key-oc               = <fs_result>-oc
+                                                                               %key-Posicion         = <fs_pos>-posicion
+                                                                               %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                           %msg = new_message_with_text(
+                                                                    severity = if_abap_behv_message=>severity-error
+                                                                    text     = lv_err_txt ) ) ).
+                ENDIF.
+
+                failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
+                                                       %tky        = keys[ KEY id %key-oc               = <fs_result>-oc
+                                                                                  %key-Posicion         = <fs_pos>-posicion
+                                                                                  %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                       %fail-cause = if_abap_behv=>cause-unspecific ) ).
+                lv_bapi_msg = abap_true.
+                CLEAR lv_timestamp.
+              ENDLOOP.
+            ELSE.
+              LOOP AT <fs_id>-t_pos ASSIGNING <fs_pos>.
+                GET TIME STAMP FIELD lv_timestamp.
+
+                APPEND VALUE #( client          = sy-mandt
+                                oc              = <fs_result>-oc
+                                posicion        = <fs_pos>-posicion
+                                vbeln           = <fs_pos>-vbeln
+                                usuario         = cl_abap_context_info=>get_user_technical_name( )
+                                fecha_hora      = lv_timestamp
+                                precio_asn      = <fs_pos>-PrecioASN
+                                moneda_asn      = <fs_pos>-MonedaASN
+                                accion          = '01'
+                                estado          = '06'
+                                precio_anterior = <fs_pos>-preciooc
+                                precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
+
+                reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                         %tky = keys[ KEY id %key-oc               = <fs_result>-oc
+                                                                             %key-Posicion         = <fs_pos>-posicion
+                                                                             %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                         %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                             number   = 017
+                                                                             v1       = <fs_result>-oc
+                                                                             v2       = <fs_pos>-posicion
+                                                                             severity = if_abap_behv_message=>severity-success ) ) ).
+                lv_bapi_msg = abap_true.
+                CLEAR lv_timestamp.
+              ENDLOOP.
             ENDIF.
           ENDIF.
         ENDLOOP.
@@ -1065,6 +1071,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
               APPEND VALUE #( client          = sy-mandt
                               oc              = <fs_sag_res>-oc
                               posicion        = <fs_pos>-posicion
+                              vbeln           = <fs_pos>-vbeln
                               usuario         = cl_abap_context_info=>get_user_technical_name( )
                               fecha_hora      = lv_timestamp
                               precio_asn      = <fs_pos>-precioasn
@@ -1075,8 +1082,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                               precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
 
               reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                       %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
-                                                                           %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                       %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
+                                                                           %key-Posicion         = <fs_pos>-posicion
+                                                                           %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
                                                        %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                            number   = 017
                                                                            v1       = <fs_sag_res>-oc
@@ -1085,8 +1093,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             ELSE.
               IF lv_err_txt IS INITIAL.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                         %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
-                                                                             %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                         %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
+                                                                             %key-Posicion         = <fs_pos>-posicion
+                                                                             %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
                                                          %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                              number   = 016
                                                                              v1       = <fs_sag_res>-oc
@@ -1094,16 +1103,18 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                                                              severity = if_abap_behv_message=>severity-error ) ) ).
               ELSE.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                         %tky = keys[ KEY id %key-oc       = <fs_sag_res>-oc
-                                                                             %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                         %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
+                                                                             %key-Posicion         = <fs_pos>-posicion
+                                                                             %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
                                                          %msg = new_message_with_text(
                                                                   severity = if_abap_behv_message=>severity-error
                                                                   text     = lv_err_txt ) ) ).
               ENDIF.
 
               failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
-                                                     %tky        = keys[ KEY id %key-oc       = <fs_sag_res>-oc
-                                                                                %key-Posicion = <fs_pos>-posicion ]-%tky
+                                                     %tky        = keys[ KEY id %key-oc               = <fs_sag_res>-oc
+                                                                                %key-Posicion         = <fs_pos>-posicion
+                                                                                %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
                                                      %fail-cause = if_abap_behv=>cause-unspecific ) ).
             ENDIF.
 
@@ -1142,12 +1153,15 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       APPEND VALUE #( client          = sy-mandt
                       oc              = <fs_moncomp>-oc
                       posicion        = <fs_moncomp>-Posicion
+                      vbeln           = <fs_moncomp>-DeliveryDocument
                       usuario         = cl_abap_context_info=>get_user_technical_name( )
                       fecha_hora      = lv_timestamp
                       precio_asn      = <fs_moncomp>-PrecioASN
                       moneda_asn      = <fs_moncomp>-MonedaASN
                       accion          = '02'
-                      nota            = keys[ KEY id oc = <fs_moncomp>-oc Posicion = <fs_moncomp>-Posicion ]-%param-Nota
+                      nota            = keys[ KEY id oc                = <fs_moncomp>-oc
+                                                      Posicion         = <fs_moncomp>-Posicion
+                                                      DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%param-Nota
                       estado          = '06' ) TO lcl_buffer=>gt_log.
 
       CLEAR lv_timestamp.
