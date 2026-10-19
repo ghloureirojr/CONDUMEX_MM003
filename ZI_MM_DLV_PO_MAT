@@ -1,19 +1,25 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'Entrega x OC x material (WBSTK A)'
+@EndUserText.label: 'Entrega em status A por OC, posição e material'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_DLV_PO_MAT
   as select from I_DeliveryDocumentItem as item
-
-    inner join   I_DeliveryDocument     as hdr on hdr.DeliveryDocument = item.DeliveryDocument
+    inner join   I_DeliveryDocument     as dlv on dlv.DeliveryDocument = item.DeliveryDocument
 {
   key item.DeliveryDocument,
   key item.PurchaseOrder,
+  key item.PurchaseOrderItem,
   key item.Material,
-      min( item.PurchaseOrderItem ) as PurchaseOrderItem
+      dlv.DocumentDate,
+      cast(
+        sum( cast( item.ActualDeliveryQuantity as abap.dec(13,3) ) )
+        as abap.dec(13,3) ) as ActualDeliveryQuantity
 }
 where
-  hdr.OverallGoodsMovementStatus = 'A'
+  dlv.OverallGoodsMovementStatus = 'A'
 group by
   item.DeliveryDocument,
   item.PurchaseOrder,
-  item.Material
+  item.PurchaseOrderItem,
+  item.Material,
+  dlv.DocumentDate
