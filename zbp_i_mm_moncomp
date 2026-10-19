@@ -619,9 +619,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                    <fs_change_pos>     TYPE zcl_mm_wrapper_po_change=>ty_param,
                    <fs_br>             TYPE bapiret2.
 
-    CONSTANTS: lc_msg_dup TYPE string VALUE
-      'Una misma posición de un documento de compra no puede modificarse más que una vez a la vez, ' &&
-      'modifique el precio una vez concluya el ciclo y si es necesario entre de nuevo a la app'.
+    CONSTANTS lc_msg_dup TYPE string VALUE 'Una misma posición de un documento de compra no puede modificarse más que una vez a la vez, modifique el precio una vez concluya el ciclo y si es necesario entre de nuevo a la app'.
 
     CLEAR: lcl_buffer=>gt_sag, lcl_buffer=>gt_sag_id.
 
