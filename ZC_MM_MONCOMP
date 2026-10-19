@@ -8,6 +8,7 @@ define root view entity ZC_MM_MONCOMP
 {
   key OC,
   key Posicion,
+  key DeliveryDocument,
       FechaOC,
       StorageLoc,
       ItemCateg,
