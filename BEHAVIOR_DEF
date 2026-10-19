@@ -2,7 +2,7 @@ unmanaged implementation in class zbp_i_mm_moncomp unique;
 strict ( 2 );
 
 define behavior for ZI_MM_MONCOMP
-lock master unmanaged
+lock master
 authorization master ( instance )
 {
   create ( authorization : global );
