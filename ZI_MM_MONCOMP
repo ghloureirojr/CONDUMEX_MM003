@@ -22,6 +22,7 @@ define root view entity ZI_MM_MONCOMP
 
     left outer join ZI_MONCOMP_LOG           as log       on  log.Oc       = pos.PurchaseOrder
                                                           and log.Posicion = pos.PurchaseOrderItem
+                                                          and log.Vbeln    = asn.DeliveryDocument
 
     left outer join ZI_MM_INFOREC            as inforec   on  inforec.Material               = pos.Material
                                                           and inforec.Supplier               = oc.Supplier
@@ -35,12 +36,14 @@ define root view entity ZI_MM_MONCOMP
 
     left outer join ZI_MM_ZASN_POITEM        as zasn      on  zasn.PurchaseOrder     = pos.PurchaseOrder
                                                           and zasn.PurchaseOrderItem = pos.PurchaseOrderItem
+                                                          and zasn.DeliveryDocument  = asn.DeliveryDocument
 
     left outer join ZI_MM_NFM_POPRICE        as nfmp      on  nfmp.PurchaseOrder     = pos.PurchaseOrder
                                                           and nfmp.PurchaseOrderItem = pos.PurchaseOrderItem
 {
   key pos.PurchaseOrder              as OC,
   key pos.PurchaseOrderItem          as Posicion,
+  key asn.DeliveryDocument           as DeliveryDocument,
       oc.PurchaseOrderDate           as FechaOC,
       pos.StorageLocation            as StorageLoc,
       pos.PurchaseOrderItemCategory  as ItemCateg,
@@ -91,8 +94,7 @@ define root view entity ZI_MM_MONCOMP
       case
         when zasn.PurchaseOrder is not null
          and zasn.PrecioUnitarioVigente <> 0
-         and ( log.moneda_asn is null
-            or log.moneda_asn is initial )
+         and log.moneda_asn is initial
           then pos.DocumentCurrency
         else log.moneda_asn
       end                            as MonedaASN,
@@ -131,16 +133,7 @@ define root view entity ZI_MM_MONCOMP
                      'FAIL',
                       'INITIAL' )    as FechaAprobacion,
       log.nota                       as Nota,
-      case
-        when log.fecha_factura is not null
-         and log.fecha_factura is not initial
-          then log.fecha_factura
-        when zasn.PurchaseOrder is not null
-         and zasn.PrecioUnitarioVigente <> 0
-         and zasn.FechaFactura is not initial
-          then zasn.FechaFactura
-        else log.fecha_factura
-      end                            as FechaFactura,
+      asn.DocumentDate               as FechaFactura,
       zasn.LifexMin                  as FacturaRemision,
       zasn.CantidadFactura           as CantidadFactura,
       cast( zasn.PrecioUnitarioVigente as abap.dec(16,5) ) as PrecioUnitarioVigente,
