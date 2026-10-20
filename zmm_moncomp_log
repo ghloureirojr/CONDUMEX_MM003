@@ -10,6 +10,7 @@ define table zmm_moncomp_log {
   key posicion    : vdm_purchaseorderitem not null;
   key usuario     : abap.char(12) not null;
   key fecha_hora  : abp_lastchange_tstmpl not null;
+  vbeln           : vbeln_vl;
   precio_asn      : abap.dec(16,5);
   moneda_asn      : waers;
   accion          : z_asn_mm_de_accion;
