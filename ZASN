@@ -1,0 +1,83 @@
+@EndUserText.label : 'ASN Table'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #RESTRICTED
+define table zasn {
+
+  key client       : abap.clnt not null;
+  key asn          : abap.char(80) not null;
+  key item         : abap.numc(5) not null;
+  key lifnr        : lifnr not null;
+  key vstel        : vstel not null;
+  lifex            : lifex;
+  idoc_num         : edi_docnum;
+  delivery_num     : vbeln;
+  status           : abap.char(1);
+  werks            : werks_d;
+  traid            : traid;
+  carrier          : zcarrier;
+  bldat            : bldat;
+  waers            : waers;
+  control_number   : abap.char(50);
+  country_code     : herkl;
+  matnr            : matnr;
+  @Semantics.quantity.unitOfMeasure : 'zasn.vrkme'
+  lfimg            : lfimg;
+  vrkme            : vrkme;
+  @Semantics.quantity.unitOfMeasure : 'zasn.vrkme'
+  zlfimg           : lfimg;
+  uom_cdxinc       : z_uom_cdxinc;
+  cust_ref         : abap.char(50);
+  ebeln            : ebeln;
+  unit_sell_price  : zunit_sell_price;
+  description      : zdescription;
+  inv_curr_code    : zwaers;
+  constant_1       : abap.char(1);
+  @Semantics.amount.currencyCode : 'zasn.waers'
+  extended_amt     : zextended_amt;
+  @Semantics.quantity.unitOfMeasure : 'zasn.vrkme'
+  ntgew            : entge;
+  gewei            : egewe;
+  po_cdxinc        : zpo_cdxinc;
+  cust_ord_cdxinc  : zcust_ord_cdxinc;
+  exidv            : exidv;
+  eng_lvl_cdxinc   : z_eng_lvl_cdxinc;
+  imp_regime       : z_imp_regime;
+  podat            : podat;
+  pallet_num       : zpallet_num;
+  cxi_item         : z_cxi_item;
+  vendor_num       : z_vendor_num;
+  vendor_name      : z_vendor_name;
+  country_orig     : herkl;
+  duty_num         : z_duty_num;
+  req_line         : z_req_line;
+  broker           : z_broker;
+  traty            : traty;
+  pack_mat         : matnr;
+  hu_tot_num       : z_tot_num;
+  @Semantics.quantity.unitOfMeasure : 'zasn.vrkme'
+  hu_quan          : z_hu_quan;
+  lgort            : lgort_d;
+  vsbed            : vsbed;
+  invoice_vendor   : z_invoice_vendor;
+  potim            : uzeit;
+  invoice_time     : z_invoice_time;
+  container_type   : z_container_type;
+  cant_container   : z_cant_container;
+  invoice_optional : z_invoice_optional;
+  payment_type     : z_pay_type;
+  vendor_id        : z_vendor_id;
+  vendor_id_1      : z_vendor_id;
+  ctrl_num         : z_ctrl_num;
+  id_add_1         : z_id_add_1;
+  id_add_2         : z_id_add_2;
+  @Semantics.quantity.unitOfMeasure : 'zasn.vrkme'
+  quan_item        : z_quan_item;
+  @Semantics.quantity.unitOfMeasure : 'zasn.vrkme'
+  quan_cumu        : z_quan_cumu;
+  uom_add          : meins;
+  @Semantics.quantity.unitOfMeasure : 'zasn.vrkme'
+  weight           : zweight;
+
+}
