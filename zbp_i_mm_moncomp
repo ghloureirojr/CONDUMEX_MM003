@@ -16,6 +16,7 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
            BEGIN OF ty_posicion,
              posicion  TYPE vdm_purchaseorderitem,
              vbeln     TYPE vbeln_vl,
+             factura   TYPE lifex,
              precioOC  TYPE zmm_moncomp_log-precio_anterior,
              precioASN TYPE zmm_moncomp_log-precio_asn,
              monedaASN TYPE waers,
@@ -96,6 +97,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       WHERE oc               = @keys-oc
         AND Posicion         = @keys-Posicion
         AND DeliveryDocument = @keys-DeliveryDocument
+        AND FacturaRemision  = @keys-FacturaRemision
       INTO CORRESPONDING FIELDS OF TABLE @result.
   ENDMETHOD.
 
@@ -513,7 +515,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       DATA: lt_entrega TYPE SORTED TABLE OF ty_entrega WITH UNIQUE KEY oc posicion vbeln,
             lt_zasn    TYPE STANDARD TABLE OF zi_mm_zasn_poitem,
             lv_hits    TYPE i,
-            lv_vbeln   TYPE vbeln_vl.
+            lv_vbeln   TYPE vbeln_vl,
+            lv_pr_zasn TYPE zi_mm_zasn_poitem-PrecioUnitarioVigente,
+            lv_pr_conf TYPE zi_mm_zasn_poitem-PrecioConflicto.
 
       SELECT *                                "#EC CI_ALL_FIELDS_NEEDED
         FROM zi_mm_zasn_poitem
@@ -523,15 +527,17 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         INTO TABLE @lt_zasn.
 
       LOOP AT lt_excel_ok ASSIGNING FIELD-SYMBOL(<fs_ok>).
-        CLEAR: lv_hits, lv_vbeln.
+        CLEAR: lv_hits, lv_vbeln, lv_pr_zasn, lv_pr_conf.
 
         LOOP AT lt_zasn ASSIGNING FIELD-SYMBOL(<fs_zasn>)
             WHERE PurchaseOrder     = <fs_ok>-oc
               AND PurchaseOrderItem = <fs_ok>-pos
               AND LifexMin          = <fs_ok>-factura
               AND DocumentDate      = <fs_ok>-fecha.
-          lv_hits  = lv_hits + 1.
-          lv_vbeln = <fs_zasn>-DeliveryDocument.
+          lv_hits    = lv_hits + 1.
+          lv_vbeln   = <fs_zasn>-DeliveryDocument.
+          lv_pr_zasn = <fs_zasn>-PrecioUnitarioVigente.
+          lv_pr_conf = <fs_zasn>-PrecioConflicto.
         ENDLOOP.
 
         IF lv_hits = 0.
@@ -548,6 +554,16 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                               %msg = new_message_with_text(
                                                        severity = if_abap_behv_message=>severity-error
                                                        text     = |Hay más de una entrega para OC { <fs_ok>-oc } pos { <fs_ok>-pos }| ) ) ).
+          CLEAR lcl_buffer=>gt_log.
+          RETURN.
+        ENDIF.
+
+        IF lv_pr_zasn > 0 OR lv_pr_conf = 'X'.
+          failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
+          reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
+                                              %msg = new_message_with_text(
+                                                       severity = if_abap_behv_message=>severity-error
+                                                       text     = 'el precio ya fue inducido mediante el ASN, contacte administrador' ) ) ).
           CLEAR lcl_buffer=>gt_log.
           RETURN.
         ENDIF.
@@ -667,7 +683,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                %tky = keys[ KEY id %key-oc               = <fs_cnt_row>-oc
                                                                    %key-Posicion         = <fs_cnt_row>-Posicion
-                                                                   %key-DeliveryDocument = <fs_cnt_row>-DeliveryDocument ]-%tky
+                                                                   %key-DeliveryDocument = <fs_cnt_row>-DeliveryDocument
+                                                                   %key-FacturaRemision  = <fs_cnt_row>-FacturaRemision ]-%tky
                                                %msg = new_message_with_text(
                                                         severity = if_abap_behv_message=>severity-error
                                                         text     = lc_msg_dup ) ) ).
@@ -675,7 +692,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
                                              %tky        = keys[ KEY id %key-oc               = <fs_cnt_row>-oc
                                                                         %key-Posicion         = <fs_cnt_row>-Posicion
-                                                                        %key-DeliveryDocument = <fs_cnt_row>-DeliveryDocument ]-%tky
+                                                                        %key-DeliveryDocument = <fs_cnt_row>-DeliveryDocument
+                                                                        %key-FacturaRemision  = <fs_cnt_row>-FacturaRemision ]-%tky
                                              %fail-cause = if_abap_behv=>cause-unspecific ) ).
     ENDLOOP.
 
@@ -718,7 +736,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                    %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
                                                                        %key-Posicion         = <fs_moncomp>-Posicion
-                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%tky
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                       %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
                                                    %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                        number   = 015
                                                                        v1       = <fs_moncomp>-oc
@@ -732,7 +751,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                    %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
                                                                        %key-Posicion         = <fs_moncomp>-Posicion
-                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%tky
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                       %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
                                                    %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                        number   = 030
                                                                        v1       = <fs_moncomp>-oc
@@ -772,6 +792,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
         APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
                         vbeln     = <fs_moncomp>-DeliveryDocument
+                        factura   = <fs_moncomp>-FacturaRemision
                         precioOC  = <fs_moncomp>-PrecioOC
                         precioASN = <fs_moncomp>-PrecioASN
                         monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_sag_id>-t_pos.
@@ -786,7 +807,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                    %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
                                                                        %key-Posicion         = <fs_moncomp>-Posicion
-                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%tky
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                       %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
                                                    %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                        number   = 030
                                                                        v1       = <fs_moncomp>-oc
@@ -804,6 +826,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
         APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
                         vbeln     = <fs_moncomp>-DeliveryDocument
+                        factura   = <fs_moncomp>-FacturaRemision
                         precioOC  = <fs_moncomp>-PrecioOC
                         precioASN = <fs_moncomp>-PrecioASN
                         monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
@@ -816,6 +839,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       IF <fs_moncomp>-MonedaOC = <fs_moncomp>-MonedaASN.
         APPEND VALUE #( posicion  = <fs_moncomp>-Posicion
                         vbeln     = <fs_moncomp>-DeliveryDocument
+                        factura   = <fs_moncomp>-FacturaRemision
                         precioOC  = <fs_moncomp>-PrecioOC
                         precioASN = <fs_moncomp>-PrecioASN
                         monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
@@ -851,7 +875,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                  %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
                                                                      %key-Posicion         = <fs_moncomp>-Posicion
-                                                                     %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%tky
+                                                                     %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                     %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
                                                  %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                      number   = 015
                                                                      v1       = <fs_moncomp>-oc
@@ -927,7 +952,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                   reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                            %tky = keys[ KEY id %key-oc               = <fs_result>-oc
                                                                                %key-Posicion         = <fs_pos>-posicion
-                                                                               %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                                               %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                               %key-FacturaRemision  = <fs_pos>-factura ]-%tky
                                                            %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                                number   = 016
                                                                                v1       = <fs_result>-oc
@@ -937,7 +963,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                   reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                            %tky = keys[ KEY id %key-oc               = <fs_result>-oc
                                                                                %key-Posicion         = <fs_pos>-posicion
-                                                                               %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                                               %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                               %key-FacturaRemision  = <fs_pos>-factura ]-%tky
                                                            %msg = new_message_with_text(
                                                                     severity = if_abap_behv_message=>severity-error
                                                                     text     = lv_err_txt ) ) ).
@@ -946,7 +973,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
                                                        %tky        = keys[ KEY id %key-oc               = <fs_result>-oc
                                                                                   %key-Posicion         = <fs_pos>-posicion
-                                                                                  %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                                                  %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                                  %key-FacturaRemision  = <fs_pos>-factura ]-%tky
                                                        %fail-cause = if_abap_behv=>cause-unspecific ) ).
                 lv_bapi_msg = abap_true.
                 CLEAR lv_timestamp.
@@ -971,7 +999,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc               = <fs_result>-oc
                                                                              %key-Posicion         = <fs_pos>-posicion
-                                                                             %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                                             %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                             %key-FacturaRemision  = <fs_pos>-factura ]-%tky
                                                          %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                              number   = 017
                                                                              v1       = <fs_result>-oc
@@ -1082,7 +1111,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
               reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                        %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
                                                                            %key-Posicion         = <fs_pos>-posicion
-                                                                           %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                                           %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                           %key-FacturaRemision  = <fs_pos>-factura ]-%tky
                                                        %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                            number   = 017
                                                                            v1       = <fs_sag_res>-oc
@@ -1093,7 +1123,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
                                                                              %key-Posicion         = <fs_pos>-posicion
-                                                                             %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                                             %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                             %key-FacturaRemision  = <fs_pos>-factura ]-%tky
                                                          %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                              number   = 016
                                                                              v1       = <fs_sag_res>-oc
@@ -1103,7 +1134,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
                                                                              %key-Posicion         = <fs_pos>-posicion
-                                                                             %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                                             %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                             %key-FacturaRemision  = <fs_pos>-factura ]-%tky
                                                          %msg = new_message_with_text(
                                                                   severity = if_abap_behv_message=>severity-error
                                                                   text     = lv_err_txt ) ) ).
@@ -1112,7 +1144,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
               failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
                                                      %tky        = keys[ KEY id %key-oc               = <fs_sag_res>-oc
                                                                                 %key-Posicion         = <fs_pos>-posicion
-                                                                                %key-DeliveryDocument = <fs_pos>-vbeln ]-%tky
+                                                                                %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                                %key-FacturaRemision  = <fs_pos>-factura ]-%tky
                                                      %fail-cause = if_abap_behv=>cause-unspecific ) ).
             ENDIF.
 
@@ -1159,7 +1192,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                       accion          = '02'
                       nota            = keys[ KEY id oc                = <fs_moncomp>-oc
                                                       Posicion         = <fs_moncomp>-Posicion
-                                                      DeliveryDocument = <fs_moncomp>-DeliveryDocument ]-%param-Nota
+                                                      DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                      FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%param-Nota
                       estado          = '06' ) TO lcl_buffer=>gt_log.
 
       CLEAR lv_timestamp.
