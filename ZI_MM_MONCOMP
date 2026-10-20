@@ -3,26 +3,26 @@
 @EndUserText.label: 'Monitor compras ASN'
 @Metadata.ignorePropagatedAnnotations: true
 define root view entity ZI_MM_MONCOMP
-  as select from    ZI_MM_WRAPPER_EKPO       as pos
+  as select from    ZI_MM_ZASN_POITEM        as zasn
 
-    inner join      ZI_MM_WRAPPER_EKKO       as oc        on oc.PurchaseOrder = pos.PurchaseOrder
+    inner join      ZI_MM_WRAPPER_EKPO       as pos       on  pos.PurchaseOrder     = zasn.PurchaseOrder
+                                                          and pos.PurchaseOrderItem = zasn.PurchaseOrderItem
 
-    inner join      ZI_MM_PO_DELIVERY_EXISTS as asn       on  asn.PurchaseOrder     = pos.PurchaseOrder
-                                                          and asn.PurchaseOrderItem = pos.PurchaseOrderItem
+    inner join      ZI_MM_WRAPPER_EKKO       as oc        on oc.PurchaseOrder = zasn.PurchaseOrder
 
     left outer join ZI_OC_HISTORY_SUM        as hist      on  hist.PurchaseOrder     = pos.PurchaseOrder
                                                           and hist.PurchaseOrderItem = pos.PurchaseOrderItem
 
-    inner join      I_Product                as mat       on mat.Product = pos.Material
+    inner join      I_Product                as mat       on mat.Product = zasn.Material
 
-    left outer join I_ProductText            as desc      on  desc.Product  = pos.Material
+    left outer join I_ProductText            as desc      on  desc.Product  = zasn.Material
                                                           and desc.Language = $session.system_language
 
-    left outer join I_Supplier               as proveedor on proveedor.Supplier = oc.Supplier
+    left outer join I_Supplier               as proveedor on proveedor.Supplier = zasn.Proveedor
 
     left outer join ZI_MONCOMP_LOG           as log       on  log.Oc       = pos.PurchaseOrder
                                                           and log.Posicion = pos.PurchaseOrderItem
-                                                          and log.Vbeln    = asn.DeliveryDocument
+                                                          and log.Vbeln    = zasn.DeliveryDocument
 
     left outer join ZI_MM_INFOREC            as inforec   on  inforec.Material               = pos.Material
                                                           and inforec.Supplier               = oc.Supplier
@@ -31,28 +31,25 @@ define root view entity ZI_MM_MONCOMP
     left outer join ZI_MM_WRAPPER_LFM1       as lfm1      on  lfm1.Supplier               = oc.Supplier
                                                           and lfm1.PurchasingOrganization = oc.PurchasingOrganization
 
-    left outer join ZI_MM_NFM_EXIST          as nfm       on  nfm.Material = pos.Material
-                                                          and nfm.Plant    = pos.Plant
-
-    left outer join ZI_MM_ZASN_POITEM        as zasn      on  zasn.PurchaseOrder     = pos.PurchaseOrder
-                                                          and zasn.PurchaseOrderItem = pos.PurchaseOrderItem
-                                                          and zasn.DeliveryDocument  = asn.DeliveryDocument
+    left outer join ZI_MM_NFM_EXIST          as nfm       on  nfm.Material = zasn.Material
+                                                          and nfm.Plant    = zasn.Plant
 
     left outer join ZI_MM_NFM_POPRICE        as nfmp      on  nfmp.PurchaseOrder     = pos.PurchaseOrder
                                                           and nfmp.PurchaseOrderItem = pos.PurchaseOrderItem
 {
-  key pos.PurchaseOrder              as OC,
-  key pos.PurchaseOrderItem          as Posicion,
-  key asn.DeliveryDocument           as DeliveryDocument,
+  key zasn.PurchaseOrder             as OC,
+  key zasn.PurchaseOrderItem         as Posicion,
+  key zasn.DeliveryDocument          as DeliveryDocument,
+  key zasn.LifexMin                  as FacturaRemision,
       oc.PurchaseOrderDate           as FechaOC,
       pos.StorageLocation            as StorageLoc,
       pos.PurchaseOrderItemCategory  as ItemCateg,
       oc.CompanyCode                 as Sociedad,
-      pos.Material                   as Material,
+      zasn.Material                  as Material,
       desc.ProductName               as MatDesc,
-      oc.Supplier                    as Proveedor,
+      zasn.Proveedor                 as Proveedor,
       proveedor.OrganizationBPName1  as NombreProveedor,
-      pos.Plant                      as Centro,
+      zasn.Plant                     as Centro,
       oc.PurchasingDocumentCategory  as TipoDocumento,
       case
         when lfm1.NfKey <> ''
@@ -86,18 +83,23 @@ define root view entity ZI_MM_MONCOMP
       pos.DocumentCurrency           as MonedaOC,
       cast(
         case
-          when zasn.PurchaseOrder is not null
+          when zasn.PrecioConflicto       <> 'X'
            and zasn.PrecioUnitarioVigente <> 0
             then zasn.PrecioUnitarioVigente
-          else cast( log.precio_asn as abap.dec(16,5) )
+          when zasn.PrecioConflicto       <> 'X'
+            then cast( log.precio_asn as abap.dec(16,5) )
         end
         as abap.dec(16,5) )          as PrecioASN,
       case
-        when zasn.PurchaseOrder is not null
+        when zasn.PrecioConflicto       <> 'X'
          and zasn.PrecioUnitarioVigente <> 0
-         and coalesce( log.moneda_asn, '' ) = ''
+         and zasn.MonedaZasn            <> ''
+          then zasn.MonedaZasn
+        when zasn.PrecioConflicto       <> 'X'
+         and zasn.PrecioUnitarioVigente <> 0
           then pos.DocumentCurrency
-        else log.moneda_asn
+        when zasn.PrecioConflicto       <> 'X'
+          then log.moneda_asn
       end                            as MonedaASN,
       cast( inforec.NetPriceAmount as abap.dec(16,5) ) as PrecioInforec,
       inforec.Currency               as MonedaInforec,
@@ -121,6 +123,8 @@ define root view entity ZI_MM_MONCOMP
           then 'Autorizado'
         when log.estado = '05'
           then 'Actualizado automatico'
+        when zasn.PrecioConflicto = 'X'
+          then 'Error precio'
         when $projection.PrecioASN is null
           then 'Sin precio ASN'
         when $projection.MonedaOC <> $projection.MonedaASN
@@ -134,8 +138,7 @@ define root view entity ZI_MM_MONCOMP
                      'FAIL',
                       'INITIAL' )    as FechaAprobacion,
       log.nota                       as Nota,
-      asn.DocumentDate               as FechaFactura,
-      zasn.LifexMin                  as FacturaRemision,
+      zasn.DocumentDate              as FechaFactura,
       zasn.CantidadFactura           as CantidadFactura,
       cast( zasn.PrecioUnitarioVigente as abap.dec(16,5) ) as PrecioUnitarioVigente,
       nfmp.OrderPriceUnit            as UnidadPrecio,
