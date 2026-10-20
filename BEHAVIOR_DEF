@@ -14,5 +14,5 @@ authorization master ( instance )
   action ( features : instance ) authPrecioASN;
   action authDiscre parameter ZAE_MM_AUTH_DISCREPANCIA;
 
-  field ( readonly ) OC, Posicion, DeliveryDocument;
+  field ( readonly ) OC, Posicion, DeliveryDocument, FacturaRemision;
 }
