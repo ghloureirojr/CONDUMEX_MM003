@@ -2,47 +2,30 @@
 @EndUserText.label: 'ZASN agregada por factura/entrega/OC/pos'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_ZASN_POITEM
-  as select from zasn               as asn
-    inner join   ZI_MM_WRAPPER_EKPO as pos
-      on  pos.PurchaseOrder = asn.ebeln
-      and pos.Material      = asn.matnr
-      and pos.Plant         = asn.werks
+  as select from ZI_MM_ZASN_POITEM_AGG as agg
 {
-  key asn.lifex                                                                        as LifexMin,
-  key asn.delivery_num                                                                 as DeliveryDocument,
-  key asn.ebeln                                                                        as PurchaseOrder,
-  key pos.PurchaseOrderItem                                                            as PurchaseOrderItem,
-      pos.Material                                                                     as Material,
-      pos.Plant                                                                        as Plant,
-      max( asn.lifnr )                                                                 as Proveedor,
-      max( asn.bldat )                                                                 as DocumentDate,
-      cast( count(*) as abap.int4 )                                                    as AsnCount,
-      max( asn.lifex )                                                                 as LifexMax,
-      max( case when asn.unit_sell_price > 0 then asn.waers end )                      as MonedaZasn,
-      cast( sum( cast( asn.lfimg as abap.dec(13,3) ) ) as abap.dec(13,3) )             as CantidadFactura,
-      cast(
-        case
-          when min( case when asn.unit_sell_price > 0 then asn.unit_sell_price end ) is not null
-           and min( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
-             = max( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
-            then cast( max( case when asn.unit_sell_price > 0 then asn.unit_sell_price end ) as abap.dec(16,5) )
-          else cast( 0 as abap.dec(16,5) )
-        end
-        as abap.dec(16,5) )                                                            as PrecioUnitarioVigente,
-      cast(
-        case
-          when min( case when asn.unit_sell_price > 0 then asn.unit_sell_price end ) is not null
-           and min( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
-            <> max( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
-            then 'X'
-          else ''
-        end
-        as abap.char(1) )                                                              as PrecioConflicto
+  key agg.LifexMin,
+  key agg.DeliveryDocument,
+  key agg.PurchaseOrder,
+  key agg.PurchaseOrderItem,
+      agg.Material,
+      agg.Plant,
+      agg.Proveedor,
+      agg.DocumentDate,
+      agg.AsnCount,
+      agg.LifexMax,
+      agg.MonedaZasn,
+      agg.CantidadFactura,
+      case
+        when agg.PrecioMin is not null
+         and agg.PrecioMin = agg.PrecioMax
+          then agg.PrecioMax
+        else cast( 0 as abap.dec(16,5) )
+      end as PrecioUnitarioVigente,
+      case
+        when agg.PrecioMin is not null
+         and agg.PrecioMin <> agg.PrecioMax
+          then 'X'
+        else ''
+      end as PrecioConflicto
 }
-group by
-  asn.lifex,
-  asn.delivery_num,
-  asn.ebeln,
-  pos.PurchaseOrderItem,
-  pos.Material,
-  pos.Plant
