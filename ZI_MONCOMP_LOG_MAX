@@ -4,9 +4,9 @@
 define view entity ZI_MONCOMP_LOG_MAX
   as select from zmm_moncomp_log
 {
-  key oc       as Oc,
-  key posicion as Posicion,
-  key vbeln    as Vbeln,
+  key oc                as Oc,
+  key posicion          as Posicion,
+  key vbeln             as Vbeln,
       max( fecha_hora ) as FechaHora
 }
 group by
