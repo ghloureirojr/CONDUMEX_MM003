@@ -1,32 +1,48 @@
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'ZASN agregada por OC/posicion/entrega'
+@EndUserText.label: 'ZASN agregada por factura/entrega/OC/pos'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_ZASN_POITEM
-  as select from zasn as asn
-    inner join ZI_MM_DLV_PO_MAT as dlv
-      on  dlv.DeliveryDocument = asn.delivery_num
-      and dlv.PurchaseOrder    = asn.ebeln
-      and dlv.Material         = asn.matnr
+  as select from zasn               as asn
+    inner join   ZI_MM_WRAPPER_EKPO as pos
+      on  pos.PurchaseOrder = asn.ebeln
+      and pos.Material      = asn.matnr
+      and pos.Plant         = asn.werks
 {
-  key dlv.DeliveryDocument,
-  key dlv.PurchaseOrder,
-  key dlv.PurchaseOrderItem,
-      dlv.DocumentDate,
+  key asn.lifex                                                                        as LifexMin,
+  key asn.delivery_num                                                                 as DeliveryDocument,
+  key asn.ebeln                                                                        as PurchaseOrder,
+  key pos.PurchaseOrderItem                                                            as PurchaseOrderItem,
+      pos.Material                                                                     as Material,
+      pos.Plant                                                                        as Plant,
+      max( asn.lifnr )                                                                 as Proveedor,
+      max( asn.bldat )                                                                 as DocumentDate,
       cast( count(*) as abap.int4 )                                                    as AsnCount,
-      min( asn.lifex )                                                                 as LifexMin,
       max( asn.lifex )                                                                 as LifexMax,
-      max( asn.unit_sell_price )                                                       as UnitSellPrice,
-      cast( max( dlv.ActualDeliveryQuantity ) as abap.dec(13,3) )                      as CantidadFactura,
+      max( case when asn.unit_sell_price > 0 then asn.waers end )                      as MonedaZasn,
+      cast( sum( cast( asn.lfimg as abap.dec(13,3) ) ) as abap.dec(13,3) )             as CantidadFactura,
       cast(
         case
-          when min( asn.unit_sell_price ) = max( asn.unit_sell_price )
-            then cast( max( asn.unit_sell_price ) as abap.dec(16,5) )
+          when min( case when asn.unit_sell_price > 0 then asn.unit_sell_price end ) is not null
+           and min( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
+             = max( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
+            then cast( max( case when asn.unit_sell_price > 0 then asn.unit_sell_price end ) as abap.dec(16,5) )
           else cast( 0 as abap.dec(16,5) )
         end
-        as abap.dec(16,5) )                                                            as PrecioUnitarioVigente
+        as abap.dec(16,5) )                                                            as PrecioUnitarioVigente,
+      cast(
+        case
+          when min( case when asn.unit_sell_price > 0 then asn.unit_sell_price end ) is not null
+           and min( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
+            <> max( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
+            then 'X'
+          else ''
+        end
+        as abap.char(1) )                                                              as PrecioConflicto
 }
 group by
-  dlv.DeliveryDocument,
-  dlv.PurchaseOrder,
-  dlv.PurchaseOrderItem,
-  dlv.DocumentDate
+  asn.lifex,
+  asn.delivery_num,
+  asn.ebeln,
+  pos.PurchaseOrderItem,
+  pos.Material,
+  pos.Plant
