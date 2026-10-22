@@ -1,0 +1,21 @@
+// ESOKZ = '0' (estandar) evita duplicar la clave; MATNR = material del ASN, no el proveedor
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Wrapper A018 PB00'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_WRAPPER_A018
+  as select from a018 as cond
+{
+  key cond.kappl as Application,
+  key cond.kschl as ConditionType,
+  key cond.lifnr as Supplier,
+  key cond.matnr as Material,
+  key cond.ekorg as PurchasingOrganization,
+  key cond.esokz as PurchasingInfoRecordCategory,
+  key cond.datbi as ValidityEndDate,
+      cond.datab as ValidityStartDate,
+      cond.knumh as ConditionRecord
+}
+where cond.kappl = 'M'
+  and cond.kschl = 'PB00'
+  and cond.esokz = '0'
