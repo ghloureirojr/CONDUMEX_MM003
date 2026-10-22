@@ -1,0 +1,35 @@
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Paso 8 monitor compras'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_MONCOMP_PASO8
+  as select from ZI_MM_MONCOMP_CALC as calc
+{
+  key calc.OC,
+  key calc.Posicion,
+  key calc.DeliveryDocument,
+  key calc.FacturaRemision,
+      calc.Sociedad,
+      calc.Material,
+      calc.Proveedor,
+      calc.Centro,
+      calc.TipoDocumento,
+      calc.IsNfm,
+      calc.PrecioOC,
+      calc.PrecioASN,
+      calc.MonedaOC,
+      calc.MonedaASN,
+      calc.Cantidad,
+      calc.CantidadPedidaUnidad,
+      calc.FechaFactura,
+      calc.Estado
+}
+where
+      calc.PrecioASN is not null
+  and calc.MonedaOC  =  calc.MonedaASN
+  and calc.PrecioOC  <> calc.PrecioASN
+  and calc.PrecioASN =  calc.PrecioInforec
+  and(
+        calc.MonedaInforec = calc.MonedaASN
+     or calc.MonedaInforec is initial
+  )
+  and calc.Estado    <> 'Actualizado automatico'
