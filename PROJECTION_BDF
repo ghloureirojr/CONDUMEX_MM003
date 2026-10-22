@@ -1,10 +1,11 @@
 projection;
 strict ( 2 );
 
-define behavior for ZC_MM_MONCOMP //alias <alias_name>
+define behavior for ZC_MM_MONCOMP
 {
   use action downloadTemplate;
   use action uploadExcel;
   use action authPrecioASN;
   use action authDiscre;
+  use action actualizarPrecioPaso8;
 }
