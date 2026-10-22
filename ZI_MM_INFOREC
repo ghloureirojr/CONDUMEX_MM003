@@ -1,0 +1,21 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Inforecord vigente'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_INFOREC
+  as select from I_PurchasingInfoRecordApi01    as eina
+    inner join   I_PurgInfoRecdOrgPlntDataApi01 as eine on eine.PurchasingInfoRecord = eina.PurchasingInfoRecord
+{
+  key eina.PurchasingInfoRecord,
+  key eine.PurchasingOrganization,
+  key eine.PurchasingInfoRecordCategory,
+  key eine.Plant,
+  key eina.Material,
+  key eina.Supplier,
+      @Semantics.amount.currencyCode: 'Currency'
+      eine.NetPriceAmount,
+      eine.Currency,
+      eine.PriceValidityEndDate
+}
+where
+  eine.PriceValidityEndDate >= $session.system_date
