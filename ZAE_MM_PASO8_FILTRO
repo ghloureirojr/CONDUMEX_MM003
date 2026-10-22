@@ -1,6 +1,6 @@
 @EndUserText.label: 'Filtro paso 8'
 @Metadata.allowExtensions: true
-define abstract entity ZAE_MM_PASO8_FILTRO
+define root abstract entity ZAE_MM_PASO8_FILTRO
 {
   @EndUserText.label: 'Sociedad'
   @Consumption.valueHelpDefinition: [{ entity: { name: 'I_CompanyCode', element: 'CompanyCode' } }]
@@ -23,6 +23,7 @@ define abstract entity ZAE_MM_PASO8_FILTRO
   OrdenCompra       : ebeln;
 
   @EndUserText.label: 'Entrega'
+  @Consumption.valueHelpDefinition: [{ entity: { name: 'I_DeliveryDocument', element: 'DeliveryDocument' } }]
   Entrega           : vbeln_vl;
 
   @EndUserText.label: 'Fecha factura desde'
