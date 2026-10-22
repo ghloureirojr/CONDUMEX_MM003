@@ -102,10 +102,13 @@ annotate entity ZC_MM_MONCOMP with
   @UI.identification: [ { position: 120 } ]
   CantidadPendiente;
 
+  @UI.hidden: true
+  PrecioOC;
+
   @EndUserText.label: 'Precio OC'
   @UI.lineItem: [ { position: 130 } ]
   @UI.identification: [ { position: 130 } ]
-  PrecioOC;
+  PrecioOCTexto;
 
   @EndUserText.label: 'Moneda OC'
   @UI.lineItem: [ { position: 140 } ]
@@ -145,10 +148,13 @@ annotate entity ZC_MM_MONCOMP with
   @UI.identification: [ { position: 200 } ]
   MonedaASN;
 
+  @UI.hidden: true
+  PrecioInforec;
+
   @EndUserText.label: 'Precio Inforecord'
   @UI.lineItem: [ { position: 210 } ]
   @UI.identification: [ { position: 210 } ]
-  PrecioInforec;
+  PrecioInforecTexto;
 
   @UI.hidden: true
   MonedaInforec;
