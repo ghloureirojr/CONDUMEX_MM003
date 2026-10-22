@@ -1,0 +1,19 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Wrapper KONP PB00'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_WRAPPER_KONP
+  as select from konp as item
+{
+  key item.knumh as ConditionRecord,
+  key item.kopos as ConditionSequentialNumber,
+      @Semantics.amount.currencyCode: 'ConditionCurrency'
+      item.kbetr as ConditionRate,
+      @Semantics.currencyCode: true
+      item.konwa as ConditionCurrency,
+      item.kpein as ConditionPricingUnit,
+      @Semantics.unitOfMeasure: true
+      item.kmein as ConditionUnit
+}
+where item.kopos     = '01'
+  and item.loevm_ko = ''
