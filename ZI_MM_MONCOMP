@@ -3,163 +3,68 @@
 @EndUserText.label: 'Monitor compras ASN'
 @Metadata.ignorePropagatedAnnotations: true
 define root view entity ZI_MM_MONCOMP
-  as select from    ZI_MM_ZASN_POITEM        as zasn
-
-    inner join      ZI_MM_WRAPPER_EKPO       as pos       on  pos.PurchaseOrder     = zasn.PurchaseOrder
-                                                          and pos.PurchaseOrderItem = zasn.PurchaseOrderItem
-
-    inner join      ZI_MM_WRAPPER_EKKO       as oc        on oc.PurchaseOrder = zasn.PurchaseOrder
-
-    left outer join ZI_OC_HISTORY_SUM        as hist      on  hist.PurchaseOrder     = pos.PurchaseOrder
-                                                          and hist.PurchaseOrderItem = pos.PurchaseOrderItem
-
-    inner join      I_Product                as mat       on mat.Product = zasn.Material
-
-    left outer join I_ProductText            as desc      on  desc.Product  = zasn.Material
-                                                          and desc.Language = $session.system_language
-
-    left outer join I_Supplier               as proveedor on proveedor.Supplier = zasn.Proveedor
-
-    left outer join ZI_MONCOMP_LOG           as log       on  log.Oc       = pos.PurchaseOrder
-                                                          and log.Posicion = pos.PurchaseOrderItem
-                                                          and log.Vbeln    = zasn.DeliveryDocument
-
-    left outer join ZI_MM_INFOREC            as inforec   on  inforec.Material               = pos.Material
-                                                          and inforec.Supplier               = oc.Supplier
-                                                          and inforec.PurchasingOrganization = oc.PurchasingOrganization
-
-    left outer join ZI_MM_WRAPPER_LFM1       as lfm1      on  lfm1.Supplier               = oc.Supplier
-                                                          and lfm1.PurchasingOrganization = oc.PurchasingOrganization
-
-    left outer join ZI_MM_NFM_EXIST          as nfm       on  nfm.Material = zasn.Material
-                                                          and nfm.Plant    = zasn.Plant
-
-    left outer join ZI_MM_NFM_POPRICE        as nfmp      on  nfmp.PurchaseOrder     = pos.PurchaseOrder
-                                                          and nfmp.PurchaseOrderItem = pos.PurchaseOrderItem
+  as select from ZI_MM_MONCOMP_CALC as calc
 {
-  key zasn.PurchaseOrder             as OC,
-  key zasn.PurchaseOrderItem         as Posicion,
-  key zasn.DeliveryDocument          as DeliveryDocument,
-  key zasn.LifexMin                  as FacturaRemision,
-      oc.PurchaseOrderDate           as FechaOC,
-      pos.StorageLocation            as StorageLoc,
-      pos.PurchaseOrderItemCategory  as ItemCateg,
-      oc.CompanyCode                 as Sociedad,
-      zasn.Material                  as Material,
-      desc.ProductName               as MatDesc,
-      zasn.Proveedor                 as Proveedor,
-      proveedor.OrganizationBPName1  as NombreProveedor,
-      zasn.Plant                     as Centro,
-      oc.PurchasingDocumentCategory  as TipoDocumento,
-      case
-        when lfm1.NfKey <> ''
-         and nfm.Material is not initial
-          then 'X'
-        else ''
-      end                            as IsNfm,
+  key calc.OC,
+  key calc.Posicion,
+  key calc.DeliveryDocument,
+  key calc.FacturaRemision,
+      calc.FechaOC,
+      calc.StorageLoc,
+      calc.ItemCateg,
+      calc.Sociedad,
+      calc.Material,
+      calc.MatDesc,
+      calc.Proveedor,
+      calc.NombreProveedor,
+      calc.Centro,
+      calc.TipoDocumento,
+      calc.IsNfm,
       @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
-      pos.OrderQuantity              as CantidadPedida,
-      pos.PurchaseOrderQuantityUnit  as CantidadPedidaUnidad,
+      calc.CantidadPedida,
+      calc.CantidadPedidaUnidad,
       @Semantics.quantity.unitOfMeasure: 'CantidadRecebidaUnidad'
-      hist.Quantity                  as CantidadRecebida,
-      hist.PurchaseOrderQuantityUnit as CantidadRecebidaUnidad,
+      calc.CantidadRecebida,
+      calc.CantidadRecebidaUnidad,
       @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
-      cast (
-      case
-        when coalesce( hist.PurchaseOrderQuantityUnit, pos.PurchaseOrderQuantityUnit )
-             = pos.PurchaseOrderQuantityUnit
-          then pos.OrderQuantity - coalesce( hist.Quantity, cast( 0 as bstmg ) )
-        else cast( 0 as bstmg )
-      end
-      as bstmg )                     as CantidadPendiente,
-      cast(
-        case
-          when pos.NetPriceQuantity > 0
-            then cast( pos.NetPriceAmount as abap.dec(16,5) )
-                 / cast( pos.NetPriceQuantity as abap.dec(16,5) )
-          else cast( 0 as abap.dec(16,5) )
-        end
-        as abap.dec(16,5) )          as PrecioOC,
-      pos.DocumentCurrency           as MonedaOC,
-      cast(
-        case
-          when zasn.PrecioConflicto       <> 'X'
-           and zasn.PrecioUnitarioVigente <> 0
-            then zasn.PrecioUnitarioVigente
-          when zasn.PrecioConflicto       <> 'X'
-            then cast( log.precio_asn as abap.dec(16,5) )
-        end
-        as abap.dec(16,5) )          as PrecioASN,
-      case
-        when zasn.PrecioConflicto       <> 'X'
-         and zasn.PrecioUnitarioVigente <> 0
-         and zasn.MonedaZasn            <> ''
-          then zasn.MonedaZasn
-        when zasn.PrecioConflicto       <> 'X'
-         and zasn.PrecioUnitarioVigente <> 0
-          then pos.DocumentCurrency
-        when zasn.PrecioConflicto       <> 'X'
-          then log.moneda_asn
-      end                            as MonedaASN,
-      cast( inforec.NetPriceAmount as abap.dec(16,5) ) as PrecioInforec,
-      inforec.Currency               as MonedaInforec,
-      pos.NetPriceQuantity           as Cantidad,
-      cast(
-        case
-          when $projection.MonedaOC = $projection.MonedaASN
-            then $projection.PrecioOC - $projection.PrecioASN
-          else cast( 0 as abap.dec(16,5) )
-        end
-        as abap.dec(16,5) )          as DiferenciaOcAsn,
-      cast(
-        case
-          when $projection.MonedaASN = $projection.MonedaInforec
-            then $projection.PrecioASN - $projection.PrecioInforec
-          else cast( 0 as abap.dec(16,5) )
-        end
-        as abap.dec(16,5) )          as DiferenciaAsnInforec,
-      case
-        when log.estado = '06'
-          then 'Autorizado'
-        when log.estado = '05'
-          then 'Actualizado automatico'
-        when zasn.PrecioConflicto = 'X'
-          then 'Error precio'
-        when $projection.PrecioASN is null
-          then 'Sin precio ASN'
-        when $projection.MonedaOC <> $projection.MonedaASN
-          then 'Error moneda'
-        when $projection.PrecioOC = $projection.PrecioASN
-          then 'Sin diferencia'
-        else 'Diferencia'
-      end                            as Estado,
-      log.usuario                    as UsuarioAprobador,
-      tstmpl_to_utcl( log.FechaHora,
-                     'FAIL',
-                      'INITIAL' )    as FechaAprobacion,
-      log.nota                       as Nota,
-      zasn.DocumentDate              as FechaFactura,
-      zasn.CantidadFactura           as CantidadFactura,
-      cast( zasn.PrecioUnitarioVigente as abap.dec(16,5) ) as PrecioUnitarioVigente,
-      nfmp.OrderPriceUnit            as UnidadPrecio,
-      nfmp.BaseUnit                  as UnidadBase,
-      cast( nfmp.FactorNfm as abap.dec(31,14) ) as FactorNfm,
+      calc.CantidadPendiente,
+      calc.PrecioOC,
+      calc.PrecioOCTexto,
+      calc.MonedaOC,
+      calc.PrecioASN,
+      calc.MonedaASN,
+      calc.PrecioInforec,
+      calc.PrecioInforecTexto,
+      calc.MonedaInforec,
+      calc.Cantidad,
+      calc.DiferenciaOcAsn,
+      calc.DiferenciaAsnInforec,
+      calc.Estado,
+      calc.UsuarioAprobador,
+      calc.FechaAprobacion,
+      calc.Nota,
+      calc.FechaFactura,
+      calc.CantidadFactura,
+      calc.PrecioUnitarioVigente,
+      calc.UnidadPrecio,
+      calc.UnidadBase,
+      calc.FactorNfm,
       @EndUserText.label: 'Precio NFM'
-      cast(
-      case
-        when $projection.IsNfm = 'X'
-         and nfmp.OrderPriceUnit = nfmp.BaseUnit
-          then round( cast( pos.OrderQuantity as abap.decfloat34 ) * nfmp.FactorNfm, 5 )
-        else cast( 0 as abap.decfloat34 )
-      end
-      as abap.dec(16,5) )            as PrecioNfm
+      calc.PrecioNfm
 }
 where
-  (
-       oc.CompanyCode  = '1810'
-    or oc.CompanyCode  = '1820'
-  )
-  and(
-       mat.ProductType = 'NF'
-    or mat.ProductType = 'ROH'
+  not(
+       calc.PrecioASN is not null
+   and calc.MonedaOC = calc.MonedaASN
+   and(
+         calc.PrecioOC = calc.PrecioASN
+      or(
+           calc.PrecioOC  <> calc.PrecioASN
+       and calc.PrecioASN =  calc.PrecioInforec
+       and(
+             calc.MonedaInforec = calc.MonedaASN
+          or calc.MonedaInforec is initial
+       )
+      )
+   )
   )
