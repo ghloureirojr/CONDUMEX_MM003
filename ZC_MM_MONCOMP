@@ -30,10 +30,12 @@ define root view entity ZC_MM_MONCOMP
       @Semantics.quantity.unitOfMeasure: 'CantidadPedidaUnidad'
       CantidadPendiente,
       PrecioOC,
+      PrecioOCTexto,
       MonedaOC,
       PrecioASN,
       MonedaASN,
       PrecioInforec,
+      PrecioInforecTexto,
       MonedaInforec,
       Cantidad,
       DiferenciaOcAsn,
