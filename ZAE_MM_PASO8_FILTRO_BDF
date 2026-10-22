@@ -1,0 +1,7 @@
+abstract;
+//strict ( 2 );
+
+define behavior for ZAE_MM_PASO8_FILTRO //alias <alias_name>
+{
+  field ( mandatory ) Sociedad;
+}
