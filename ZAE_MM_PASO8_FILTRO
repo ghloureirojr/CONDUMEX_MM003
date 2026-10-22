@@ -1,0 +1,33 @@
+@EndUserText.label: 'Filtro paso 8'
+@Metadata.allowExtensions: true
+define abstract entity ZAE_MM_PASO8_FILTRO
+{
+  @EndUserText.label: 'Sociedad'
+  @Consumption.valueHelpDefinition: [{ entity: { name: 'I_CompanyCode', element: 'CompanyCode' } }]
+  Sociedad          : bukrs;
+
+  @EndUserText.label: 'Centro'
+  @Consumption.valueHelpDefinition: [{ entity: { name: 'I_Plant', element: 'Plant' } }]
+  Centro            : werks_d;
+
+  @EndUserText.label: 'Material'
+  @Consumption.valueHelpDefinition: [{ entity: { name: 'ZI_MM_PRODUCT_VH_MC_ASN', element: 'Product' } }]
+  Material          : matnr;
+
+  @EndUserText.label: 'Proveedor'
+  @Consumption.valueHelpDefinition: [{ entity: { name: 'I_Supplier', element: 'Supplier' } }]
+  Proveedor         : lifnr;
+
+  @EndUserText.label: 'Orden de compra'
+  @Consumption.valueHelpDefinition: [{ entity: { name: 'ZI_MM_WRAPPER_EKKO', element: 'PurchaseOrder' } }]
+  OrdenCompra       : ebeln;
+
+  @EndUserText.label: 'Entrega'
+  Entrega           : vbeln_vl;
+
+  @EndUserText.label: 'Fecha factura desde'
+  FechaFacturaDesde : datum;
+
+  @EndUserText.label: 'Fecha factura hasta'
+  FechaFacturaHasta : datum;
+}
