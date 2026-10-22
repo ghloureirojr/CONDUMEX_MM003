@@ -1,0 +1,40 @@
+// ESOKZ = '0' (estandar) evita duplicar la clave; MATNR = material del ASN, no el proveedor
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Inforecord ASN A018'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_ASN_INFOREC
+  as select from ZI_MM_ZASN_POITEM as zasn
+    inner join      ZI_MM_WRAPPER_EKKO as oc   on oc.PurchaseOrder = zasn.PurchaseOrder
+    left outer join ZI_MM_WRAPPER_A018 as a018 on  a018.Supplier               = zasn.Proveedor
+                                               and a018.Material               = zasn.Material
+                                               and a018.PurchasingOrganization = oc.CompanyCode
+                                               and a018.ValidityStartDate     <= zasn.DocumentDate
+                                               and a018.ValidityEndDate       >= zasn.DocumentDate
+    left outer join ZI_MM_WRAPPER_KONP as konp on konp.ConditionRecord = a018.ConditionRecord
+{
+  key zasn.LifexMin          as LifexMin,
+  key zasn.DeliveryDocument  as DeliveryDocument,
+  key zasn.PurchaseOrder     as PurchaseOrder,
+  key zasn.PurchaseOrderItem as PurchaseOrderItem,
+      cast(
+        coalesce(
+          max(
+            case
+              when konp.ConditionPricingUnit > 0
+                then cast(
+                       cast( konp.ConditionRate as abap.dec(16,5) )
+                       / cast( konp.ConditionPricingUnit as abap.dec(16,5) )
+                       as abap.dec(16,5) )
+              else cast( 0 as abap.dec(16,5) )
+            end
+          ),
+          cast( 0 as abap.dec(16,5) )
+        ) as abap.dec(16,5) ) as PrecioInforec,
+      max( konp.ConditionCurrency ) as MonedaInforec,
+      max( konp.ConditionUnit )     as UnidadInforec
+}
+group by
+  zasn.LifexMin,
+  zasn.DeliveryDocument,
+  zasn.PurchaseOrder,
+  zasn.PurchaseOrderItem
