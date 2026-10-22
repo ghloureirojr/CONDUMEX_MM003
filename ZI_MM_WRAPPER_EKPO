@@ -1,0 +1,28 @@
+define view entity ZI_MM_WRAPPER_EKPO
+  as select from ekpo as item
+    inner join   ekko as header on header.ebeln = item.ebeln
+{
+  key item.ebeln as PurchaseOrder,
+  key item.ebelp as PurchaseOrderItem,
+      item.matnr as Material,
+      item.werks as Plant,
+      item.lgort as StorageLocation,
+      item.pstyp as PurchaseOrderItemCategory,
+      @Semantics.quantity.unitOfMeasure: 'PurchaseOrderQuantityUnit'
+      item.menge as OrderQuantity,
+      @Semantics.unitOfMeasure: true
+      item.meins as PurchaseOrderQuantityUnit,
+      @Semantics.amount.currencyCode: 'DocumentCurrency'
+      item.netpr as NetPriceAmount,
+      @Semantics.currencyCode: true
+      header.waers as DocumentCurrency,
+      item.peinh as NetPriceQuantity,
+      @Semantics.unitOfMeasure: true
+      item.bprme as OrderPriceUnit,
+      item.txz01 as PurchasingDocumentItemText,
+      item.elikz as IsCompletelyDelivered,
+      item.loekz as DeletionCode,
+      item.bstyp as PurchasingDocumentCategory
+}
+where ( item.bstyp = 'F' or item.bstyp = 'L' )
+  and item.loekz = ''
