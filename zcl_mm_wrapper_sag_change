@@ -25,7 +25,7 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
       RETURNING VALUE(rt_return) TYPE tt_return.
   PROTECTED SECTION.
   PRIVATE SECTION.
-    TYPES: tt_sched    TYPE SORTED TABLE OF bapimeoutschedule
+    TYPES: tt_sched TYPE SORTED TABLE OF bapimeoutschedule
                     WITH NON-UNIQUE KEY item_no,
            tt_validity TYPE SORTED TABLE OF bapimeoutvalidity
                        WITH NON-UNIQUE KEY item_no valid_from,
@@ -119,45 +119,46 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD call_bapi_change.
-    DATA: lt_return_get  TYPE tt_return,
-          lt_val         TYPE STANDARD TABLE OF bapimeoutvalidity,
-          lt_cond        TYPE STANDARD TABLE OF bapimeoutcondition,
-          lt_val_k       TYPE tt_validity,
-          lt_cond_k      TYPE tt_cond,
-          lt_val_ch      TYPE STANDARD TABLE OF bapimeoutvalidity,
-          lt_valx_ch     TYPE STANDARD TABLE OF bapimeoutvalidityx,
-          lt_cond_ch     TYPE STANDARD TABLE OF bapimeoutcondition,
-          lt_condx_ch    TYPE STANDARD TABLE OF bapimeoutconditionx,
-          lt_val_new     TYPE STANDARD TABLE OF bapimeoutvalidity,
-          lt_valx_new    TYPE STANDARD TABLE OF bapimeoutvalidityx,
-          lt_cond_new    TYPE STANDARD TABLE OF bapimeoutcondition,
-          lt_condx_new   TYPE STANDARD TABLE OF bapimeoutconditionx,
-          ls_current     TYPE bapimeoutvalidity,
-          ls_new_val     TYPE bapimeoutvalidity,
-          ls_cond        TYPE bapimeoutcondition,
-          lv_invoice     TYPE dats,
-          lv_prev        TYPE dats,
-          lv_valid_to    TYPE dats,
-          lv_next_from   TYPE dats,
-          lv_before      TYPE dats,
-          lv_gd_err      TYPE abap_bool,
-          lv_serial      TYPE bapimeoutvalidity-serial_id,
-          lv_row         TYPE bapiret2-row,
-          lv_ebelp       TYPE ebelp,
-          lv_after       TYPE dats,
-          lv_new_from    TYPE dats,
-          lv_new_prev    TYPE dats,
-          lv_orig_to     TYPE dats,
-          lv_price_to    TYPE dats,
-          lv_tail_from   TYPE dats,
-          lv_chg_to      TYPE abap_bool,
+    DATA: lt_return_get TYPE tt_return,
+          lt_val        TYPE STANDARD TABLE OF bapimeoutvalidity,
+          lt_cond       TYPE STANDARD TABLE OF bapimeoutcondition,
+          lt_val_k      TYPE tt_validity,
+          lt_cond_k     TYPE tt_cond,
+          lt_val_ch     TYPE STANDARD TABLE OF bapimeoutvalidity,
+          lt_valx_ch    TYPE STANDARD TABLE OF bapimeoutvalidityx,
+          lt_cond_ch    TYPE STANDARD TABLE OF bapimeoutcondition,
+          lt_condx_ch   TYPE STANDARD TABLE OF bapimeoutconditionx,
+          lt_val_new    TYPE STANDARD TABLE OF bapimeoutvalidity,
+          lt_valx_new   TYPE STANDARD TABLE OF bapimeoutvalidityx,
+          lt_cond_new   TYPE STANDARD TABLE OF bapimeoutcondition,
+          lt_condx_new  TYPE STANDARD TABLE OF bapimeoutconditionx,
+          ls_current    TYPE bapimeoutvalidity,
+          ls_new_val    TYPE bapimeoutvalidity,
+          ls_cond       TYPE bapimeoutcondition,
+          lv_invoice    TYPE dats,
+          lv_prev       TYPE dats,
+          lv_valid_to   TYPE dats,
+          lv_next_from  TYPE dats,
+          lv_before     TYPE dats,
+          lv_gd_err     TYPE abap_bool,
+          lv_serial     TYPE bapimeoutvalidity-serial_id,
+          lv_row        TYPE bapiret2-row,
+          lv_ebelp      TYPE ebelp,
+          lv_after      TYPE dats,
+          lv_new_from   TYPE dats,
+          lv_new_prev   TYPE dats,
+          lv_orig_to    TYPE dats,
+          lv_price_to   TYPE dats,
+          lv_tail_from  TYPE dats,
+          lv_chg_to     TYPE abap_bool,
           lv_serial_tail TYPE bapimeoutvalidity-serial_id,
-          ls_cond_old    TYPE bapimeoutcondition,
-          lv_bapi_err    TYPE abap_bool,
-          ls_left        TYPE bapimeoutvalidity,
-          lt_bapi_ret    TYPE tt_return,
-          lt_item_err    TYPE tt_return,
-          lx_ch          TYPE REF TO cx_root.
+          ls_cond_old   TYPE bapimeoutcondition,
+          lv_bapi_err   TYPE abap_bool,
+          lv_why        TYPE string,
+          ls_left       TYPE bapimeoutvalidity,
+          lt_bapi_ret   TYPE tt_return,
+          lt_item_err   TYPE tt_return,
+          lx_ch         TYPE REF TO cx_root.
 
     IF is_param-iv_nfm = abap_true.
       rt_return = change_nfm_schedule( is_param ).
@@ -196,7 +197,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     LOOP AT is_param-t_item ASSIGNING FIELD-SYMBOL(<fs_item>).
       CLEAR: ls_current, ls_new_val, ls_cond, ls_left, lv_next_from, lv_before, lv_serial, lv_after,
              lv_new_from, lv_new_prev, lv_orig_to, lv_price_to, lv_tail_from, lv_chg_to,
-             lv_serial_tail, ls_cond_old,
+             lv_serial_tail, ls_cond_old, lv_why,
              lv_bapi_err, lt_val_ch, lt_valx_ch, lt_cond_ch, lt_condx_ch, lt_bapi_ret,
              lt_val_new, lt_valx_new, lt_cond_new, lt_condx_new.
       lv_invoice = <fs_item>-invoice_date.
@@ -299,6 +300,9 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         lv_price_to = lv_valid_to.
 
         IF lv_price_to < ls_current-valid_from.
+          lv_why = |Posición { <fs_item>-item }: el fin calculado del periodo (| &&
+                   |{ lv_price_to+6(2) }.{ lv_price_to+4(2) }.{ lv_price_to(4) }) queda antes del inicio vigente (| &&
+                   |{ ls_current-valid_from+6(2) }.{ ls_current-valid_from+4(2) }.{ ls_current-valid_from(4) }).|.
           CLEAR: lt_val_ch, lt_val_new.
         ELSE.
           ls_cond-serial_id  = ls_current-serial_id.
@@ -337,6 +341,11 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         lv_new_prev = lv_new_prev - 1.
 
         IF lv_new_from > lv_valid_to.
+          lv_why = |Posición { <fs_item>-item }: el periodo vigente empieza el | &&
+                   |{ ls_current-valid_from+6(2) }.{ ls_current-valid_from+4(2) }.{ ls_current-valid_from(4) }, antes de la factura | &&
+                   |{ lv_invoice+6(2) }.{ lv_invoice+4(2) }.{ lv_invoice(4) }. El inicio nuevo no puede ser anterior a hoy (| &&
+                   |{ sy-datum+6(2) }.{ sy-datum+4(2) }.{ sy-datum(4) }) y queda después del fin permitido (| &&
+                   |{ lv_valid_to+6(2) }.{ lv_valid_to+4(2) }.{ lv_valid_to(4) }).|.
           CLEAR: lt_val_ch, lt_val_new.
         ELSE.
           IF ls_current-valid_from < lv_new_from AND ls_current-valid_to >= lv_new_from.
@@ -427,9 +436,13 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       ENDIF.
 
       IF lt_val_ch IS INITIAL AND lt_val_new IS INITIAL.
+        IF lv_why IS INITIAL.
+          lv_why = |No se creó el periodo de precio de la posición { <fs_item>-item }.|.
+        ENDIF.
         APPEND VALUE #( type       = 'E'
                         id         = 'ZCL_MSG_MM_003'
                         number     = '016'
+                        message    = lv_why
                         message_v1 = is_param-iv_purchasingdocument
                         message_v2 = <fs_item>-item
                         row        = lv_row ) TO lt_item_err.
