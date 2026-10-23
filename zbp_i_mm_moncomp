@@ -35,37 +35,63 @@ ENDCLASS.
 
 CLASS lcl_xlsx_cell DEFINITION.
   PUBLIC SECTION.
+    TYPES: BEGIN OF ty_cell,
+             row TYPE i,
+             col TYPE i,
+             val TYPE string,
+           END OF ty_cell.
+    TYPES tt_cell TYPE HASHED TABLE OF ty_cell WITH UNIQUE KEY row col.
+
+    CLASS-METHODS grid_of
+      IMPORTING iv_content     TYPE xstring
+      RETURNING VALUE(rt_cell) TYPE tt_cell.
+
     CLASS-METHODS text_of
-      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
+      IMPORTING iv_raw         TYPE string
                 iv_column      TYPE i
       RETURNING VALUE(rv_text) TYPE string.
   PRIVATE SECTION.
     CONSTANTS: c_col_precio TYPE i VALUE 8,
                c_col_fecha  TYPE i VALUE 10.
 
-    CLASS-METHODS try_identity_string
-      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
-      EXPORTING ev_text        TYPE string
-      RETURNING VALUE(rv_ok)   TYPE abap_bool.
+    CLASS-METHODS zip_text
+      IMPORTING io_zip         TYPE REF TO cl_abap_zip
+                iv_name        TYPE string
+      RETURNING VALUE(rv_xml)  TYPE string.
 
-    CLASS-METHODS try_identity_number
-      IMPORTING io_cell          TYPE REF TO if_xco_xlsx_ra_cell
-      EXPORTING ev_number        TYPE decfloat34
-      RETURNING VALUE(rv_ok)     TYPE abap_bool.
+    CLASS-METHODS first_sheet
+      IMPORTING io_zip         TYPE REF TO cl_abap_zip
+      RETURNING VALUE(rv_name) TYPE string.
 
-    CLASS-METHODS try_best_effort_date
-      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
-      EXPORTING ev_date        TYPE d
-      RETURNING VALUE(rv_ok)   TYPE abap_bool.
+    CLASS-METHODS unescape
+      IMPORTING iv_text        TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
 
-    CLASS-METHODS try_identity_bool
-      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
-      RETURNING VALUE(rv_true) TYPE abap_bool.
+    CLASS-METHODS attr_of
+      IMPORTING iv_tag          TYPE string
+                iv_name         TYPE string
+      RETURNING VALUE(rv_value) TYPE string.
 
-    CLASS-METHODS try_string_value
-      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
-      EXPORTING ev_text        TYPE string
-      RETURNING VALUE(rv_ok)   TYPE abap_bool.
+    CLASS-METHODS texts_of
+      IMPORTING iv_xml         TYPE string
+                iv_tag         TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+
+    CLASS-METHODS shared_strings
+      IMPORTING iv_xml         TYPE string
+      RETURNING VALUE(rt_text) TYPE string_table.
+
+    CLASS-METHODS ref_parts
+      IMPORTING iv_ref       TYPE string
+      EXPORTING ev_col      TYPE i
+                ev_row      TYPE i
+                ev_ok       TYPE abap_bool.
+
+    CLASS-METHODS cell_value
+      IMPORTING iv_inner       TYPE string
+                iv_type        TYPE string
+                it_shared      TYPE string_table
+      RETURNING VALUE(rv_text) TYPE string.
 
     CLASS-METHODS normalize
       IMPORTING iv_text        TYPE string
@@ -93,115 +119,431 @@ ENDCLASS.
 
 CLASS lcl_xlsx_cell IMPLEMENTATION.
   METHOD text_of.
-    DATA: lv_text   TYPE string,
-          lv_number TYPE decfloat34,
-          lv_date   TYPE d.
+    rv_text = normalize( iv_text = iv_raw iv_column = iv_column ).
+  ENDMETHOD.
 
-    IF io_cell IS NOT BOUND OR io_cell->has_value( ) = abap_false.
+  METHOD grid_of.
+    DATA lo_zip TYPE REF TO cl_abap_zip.
+    DATA lv_sheet TYPE string.
+    DATA lv_xml TYPE string.
+    DATA lt_shared TYPE string_table.
+    DATA lv_from TYPE i.
+    DATA lv_at TYPE i.
+    DATA lv_gt TYPE i.
+    DATA lv_end TYPE i.
+    DATA lv_tag TYPE string.
+    DATA lv_inner TYPE string.
+    DATA lv_type TYPE string.
+    DATA lv_ref TYPE string.
+    DATA lv_col TYPE i.
+    DATA lv_row TYPE i.
+    DATA lv_ok TYPE abap_bool.
+    DATA lv_val TYPE string.
+    DATA lv_len TYPE i.
+    DATA lv_off TYPE i.
+    DATA lv_sub TYPE i.
+
+    CREATE OBJECT lo_zip.
+    lo_zip->load( EXPORTING zip = iv_content
+                  EXCEPTIONS zip_parse_error = 1
+                             others          = 2 ).
+    IF sy-subrc <> 0.
       RETURN.
     ENDIF.
 
-    "Shared string via identity. Numero, fecha y booleano no usan string_value.
-    IF try_identity_string( EXPORTING io_cell = io_cell
-                            IMPORTING ev_text = lv_text ) = abap_true
-    AND lv_text IS NOT INITIAL.
-      rv_text = normalize( iv_text = lv_text iv_column = iv_column ).
+    lv_xml = zip_text( io_zip = lo_zip iv_name = `xl/sharedStrings.xml` ).
+    lt_shared = shared_strings( lv_xml ).
+    lv_sheet = first_sheet( lo_zip ).
+    lv_xml = zip_text( io_zip = lo_zip iv_name = lv_sheet ).
+    lv_len = strlen( lv_xml ).
+
+    WHILE lv_from < lv_len.
+      lv_at = find( val = lv_xml sub = `<c ` off = lv_from ).
+      IF lv_at < 0.
+        EXIT.
+      ENDIF.
+      lv_gt = find( val = lv_xml sub = `>` off = lv_at ).
+      IF lv_gt < 0.
+        EXIT.
+      ENDIF.
+      lv_sub = lv_gt - lv_at + 1.
+      lv_tag = lv_xml+lv_at(lv_sub).
+      lv_ref = attr_of( iv_tag = lv_tag iv_name = `r` ).
+      lv_type = attr_of( iv_tag = lv_tag iv_name = `t` ).
+      lv_type = to_lower( lv_type ).
+      CLEAR lv_inner.
+      lv_off = lv_gt - 1.
+      IF lv_gt > lv_at AND lv_xml+lv_off(1) = `/`.
+        lv_from = lv_gt + 1.
+      ELSE.
+        lv_end = find( val = lv_xml sub = `</c>` off = lv_gt ).
+        IF lv_end < 0.
+          EXIT.
+        ENDIF.
+        lv_off = lv_gt + 1.
+        lv_sub = lv_end - lv_off.
+        IF lv_sub > 0.
+          lv_inner = lv_xml+lv_off(lv_sub).
+        ENDIF.
+        lv_from = lv_end + 4.
+      ENDIF.
+
+      ref_parts( EXPORTING iv_ref = lv_ref
+                 IMPORTING ev_col = lv_col
+                           ev_row = lv_row
+                           ev_ok  = lv_ok ).
+      IF lv_ok = abap_false OR lv_col < 1 OR lv_col > 10 OR lv_row < 2 OR lv_row > 5000.
+        CONTINUE.
+      ENDIF.
+
+      lv_val = cell_value( iv_inner  = lv_inner
+                           iv_type   = lv_type
+                           it_shared = lt_shared ).
+      IF lv_val IS INITIAL.
+        CONTINUE.
+      ENDIF.
+      INSERT VALUE #( row = lv_row col = lv_col val = lv_val ) INTO TABLE rt_cell.
+    ENDWHILE.
+  ENDMETHOD.
+
+  METHOD zip_text.
+    DATA lv_want TYPE string.
+    DATA lv_have TYPE string.
+    DATA lv_bs TYPE c LENGTH 1 VALUE '\'.
+    DATA lv_x TYPE xstring.
+    DATA lv_off TYPE i.
+    DATA lo_conv TYPE REF TO cl_abap_conv_in_ce.
+
+    lv_want = to_lower( iv_name ).
+    LOOP AT io_zip->files INTO DATA(ls_zip).
+      lv_have = ls_zip-name.
+      REPLACE ALL OCCURRENCES OF lv_bs IN lv_have WITH `/`.
+      IF lv_have IS NOT INITIAL AND lv_have+0(1) = `/`.
+        lv_off = 1.
+        lv_have = lv_have+lv_off.
+      ENDIF.
+      IF to_lower( lv_have ) <> lv_want.
+        CONTINUE.
+      ENDIF.
+      CLEAR lv_x.
+      io_zip->get( EXPORTING name    = ls_zip-name
+                   IMPORTING content = lv_x
+                   EXCEPTIONS zip_index_error = 1
+                              others          = 2 ).
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      IF lv_x IS NOT INITIAL.
+        lo_conv = cl_abap_conv_in_ce=>create( encoding = `UTF-8` ).
+        lo_conv->convert( EXPORTING input = lv_x
+                          IMPORTING data  = rv_xml ).
+      ENDIF.
+      RETURN.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD first_sheet.
+    DATA lv_book TYPE string.
+    DATA lv_rels TYPE string.
+    DATA lv_rid TYPE string.
+    DATA lv_tag TYPE string.
+    DATA lv_target TYPE string.
+    DATA lv_from TYPE i.
+    DATA lv_at TYPE i.
+    DATA lv_gt TYPE i.
+    DATA lv_len TYPE i.
+    DATA lv_off TYPE i.
+    DATA lv_sub TYPE i.
+
+    rv_name = `xl/worksheets/sheet1.xml`.
+    lv_book = zip_text( io_zip = io_zip iv_name = `xl/workbook.xml` ).
+    lv_rels = zip_text( io_zip = io_zip iv_name = `xl/_rels/workbook.xml.rels` ).
+    IF lv_book IS INITIAL OR lv_rels IS INITIAL.
       RETURN.
     ENDIF.
 
-    IF try_identity_number( EXPORTING io_cell   = io_cell
-                            IMPORTING ev_number = lv_number ) = abap_true.
-      rv_text = from_number( iv_number = lv_number iv_column = iv_column ).
+    lv_at = find( val = lv_book sub = `<sheet ` ).
+    IF lv_at < 0.
+      RETURN.
+    ENDIF.
+    lv_gt = find( val = lv_book sub = `>` off = lv_at ).
+    IF lv_gt < 0.
+      RETURN.
+    ENDIF.
+    lv_sub = lv_gt - lv_at + 1.
+    lv_tag = lv_book+lv_at(lv_sub).
+    lv_rid = attr_of( iv_tag = lv_tag iv_name = `r:id` ).
+    IF lv_rid IS INITIAL.
       RETURN.
     ENDIF.
 
-    IF iv_column = c_col_fecha
-    AND try_best_effort_date( EXPORTING io_cell = io_cell
-                              IMPORTING ev_date = lv_date ) = abap_true
-    AND lv_date IS NOT INITIAL
-    AND lv_date+0(4) >= '1900'
-    AND lv_date+0(4) <= '2199'.
-      rv_text = lv_date.
+    lv_len = strlen( lv_rels ).
+    WHILE lv_from < lv_len.
+      lv_at = find( val = lv_rels sub = `<Relationship` off = lv_from ).
+      IF lv_at < 0.
+        EXIT.
+      ENDIF.
+      lv_gt = find( val = lv_rels sub = `>` off = lv_at ).
+      IF lv_gt < 0.
+        EXIT.
+      ENDIF.
+      lv_sub = lv_gt - lv_at + 1.
+      lv_tag = lv_rels+lv_at(lv_sub).
+      IF attr_of( iv_tag = lv_tag iv_name = `Id` ) = lv_rid.
+        lv_target = attr_of( iv_tag = lv_tag iv_name = `Target` ).
+        EXIT.
+      ENDIF.
+      lv_from = lv_gt + 1.
+    ENDWHILE.
+
+    IF lv_target IS INITIAL.
+      RETURN.
+    ENDIF.
+    IF lv_target+0(1) = `/`.
+      lv_off = 1.
+      lv_target = lv_target+lv_off.
+    ENDIF.
+    IF find( val = to_lower( lv_target ) sub = `xl/` ) <> 0.
+      lv_target = |xl/{ lv_target }|.
+    ENDIF.
+    rv_name = lv_target.
+  ENDMETHOD.
+
+  METHOD unescape.
+    DATA lv TYPE string.
+    DATA lv_nl TYPE string.
+
+    lv_nl = cl_abap_char_utilities=>newline.
+    lv = iv_text.
+    lv = replace( val = lv sub = `&lt;`   with = `<` occ = 0 ).
+    lv = replace( val = lv sub = `&gt;`   with = `>` occ = 0 ).
+    lv = replace( val = lv sub = `&quot;` with = `"` occ = 0 ).
+    lv = replace( val = lv sub = `&apos;` with = `'` occ = 0 ).
+    lv = replace( val = lv sub = `&#10;`  with = lv_nl occ = 0 ).
+    lv = replace( val = lv sub = `&#xA;`  with = lv_nl occ = 0 ).
+    lv = replace( val = lv sub = `&#xa;`  with = lv_nl occ = 0 ).
+    lv = replace( val = lv sub = `&#13;`  with = `` occ = 0 ).
+    lv = replace( val = lv sub = `&#xD;`  with = `` occ = 0 ).
+    lv = replace( val = lv sub = `&#xd;`  with = `` occ = 0 ).
+    lv = replace( val = lv sub = `_x000D_` with = `` occ = 0 ).
+    lv = replace( val = lv sub = `_x000A_` with = lv_nl occ = 0 ).
+    lv = replace( val = lv sub = `&amp;`  with = `&` occ = 0 ).
+    rv_text = lv.
+  ENDMETHOD.
+
+  METHOD attr_of.
+    DATA lv_key TYPE string.
+    DATA lv_at TYPE i.
+    DATA lv_q TYPE i.
+    DATA lv_start TYPE i.
+    DATA lv_sub TYPE i.
+    DATA lv_raw TYPE string.
+
+    lv_key = |{ iv_name }="|.
+    lv_at = find( val = iv_tag sub = lv_key ).
+    IF lv_at < 0.
+      RETURN.
+    ENDIF.
+    lv_start = lv_at + strlen( lv_key ).
+    lv_q = find( val = iv_tag sub = `"` off = lv_start ).
+    IF lv_q < 0.
+      RETURN.
+    ENDIF.
+    lv_sub = lv_q - lv_start.
+    lv_raw = iv_tag+lv_start(lv_sub).
+    rv_value = unescape( lv_raw ).
+  ENDMETHOD.
+
+  METHOD texts_of.
+    DATA lv_from TYPE i.
+    DATA lv_len TYPE i.
+    DATA lv_at TYPE i.
+    DATA lv_gt TYPE i.
+    DATA lv_end TYPE i.
+    DATA lv_open TYPE string.
+    DATA lv_close TYPE string.
+    DATA lv_nch TYPE c LENGTH 1.
+    DATA lv_piece TYPE string.
+    DATA lv_off TYPE i.
+    DATA lv_sub TYPE i.
+
+    lv_open = |<{ iv_tag }|.
+    lv_close = |</{ iv_tag }>|.
+    lv_len = strlen( iv_xml ).
+    WHILE lv_from < lv_len.
+      lv_at = find( val = iv_xml sub = lv_open off = lv_from ).
+      IF lv_at < 0.
+        EXIT.
+      ENDIF.
+      IF lv_at + strlen( lv_open ) >= lv_len.
+        EXIT.
+      ENDIF.
+      lv_end = lv_at + strlen( lv_open ).
+      lv_nch = iv_xml+lv_end(1).
+      IF lv_nch <> `>` AND lv_nch <> `/` AND lv_nch <> ` `.
+        lv_from = lv_at + strlen( lv_open ).
+        CONTINUE.
+      ENDIF.
+      lv_gt = find( val = iv_xml sub = `>` off = lv_at ).
+      IF lv_gt < 0.
+        EXIT.
+      ENDIF.
+      lv_off = lv_gt - 1.
+      IF lv_gt > lv_at AND iv_xml+lv_off(1) = `/`.
+        lv_from = lv_gt + 1.
+        CONTINUE.
+      ENDIF.
+      lv_end = find( val = iv_xml sub = lv_close off = lv_gt ).
+      IF lv_end < 0.
+        EXIT.
+      ENDIF.
+      lv_off = lv_gt + 1.
+      lv_sub = lv_end - lv_off.
+      IF lv_sub > 0.
+        lv_piece = iv_xml+lv_off(lv_sub).
+      ELSE.
+        CLEAR lv_piece.
+      ENDIF.
+      lv_piece = unescape( lv_piece ).
+      rv_text = |{ rv_text }{ lv_piece }|.
+      lv_from = lv_end + strlen( lv_close ).
+    ENDWHILE.
+  ENDMETHOD.
+
+  METHOD shared_strings.
+    DATA lv_from TYPE i.
+    DATA lv_len TYPE i.
+    DATA lv_at TYPE i.
+    DATA lv_end TYPE i.
+    DATA lv_nch TYPE c LENGTH 1.
+    DATA lv_inner TYPE string.
+    DATA lv_sub TYPE i.
+
+    lv_len = strlen( iv_xml ).
+    WHILE lv_from < lv_len.
+      lv_at = find( val = iv_xml sub = `<si` off = lv_from ).
+      IF lv_at < 0.
+        EXIT.
+      ENDIF.
+      IF lv_at + 3 >= lv_len.
+        EXIT.
+      ENDIF.
+      lv_end = lv_at + 3.
+      lv_nch = iv_xml+lv_end(1).
+      IF lv_nch <> `>` AND lv_nch <> ` `.
+        lv_from = lv_at + 3.
+        CONTINUE.
+      ENDIF.
+      lv_end = find( val = iv_xml sub = `</si>` off = lv_at ).
+      IF lv_end < 0.
+        EXIT.
+      ENDIF.
+      lv_sub = lv_end - lv_at.
+      lv_inner = iv_xml+lv_at(lv_sub).
+      APPEND texts_of( iv_xml = lv_inner iv_tag = `t` ) TO rt_text.
+      lv_from = lv_end + 5.
+    ENDWHILE.
+  ENDMETHOD.
+
+  METHOD ref_parts.
+    DATA lv_len TYPE i.
+    DATA lv_i TYPE i.
+    DATA lv_j TYPE i.
+    DATA lv_n TYPE i.
+    DATA lv_off TYPE i.
+    DATA lv_llen TYPE i.
+    DATA lv_ch TYPE c LENGTH 1.
+    DATA lv_letters TYPE string.
+    DATA lv_digits TYPE string.
+
+    CLEAR: ev_col, ev_row, ev_ok.
+    lv_len = strlen( iv_ref ).
+    WHILE lv_i < lv_len.
+      lv_ch = to_upper( iv_ref+lv_i(1) ).
+      IF lv_ch >= `A` AND lv_ch <= `Z`.
+        lv_letters = |{ lv_letters }{ lv_ch }|.
+      ELSE.
+        EXIT.
+      ENDIF.
+      lv_i = lv_i + 1.
+    ENDWHILE.
+    IF lv_letters IS INITIAL OR lv_i >= lv_len.
+      RETURN.
+    ENDIF.
+    lv_digits = iv_ref+lv_i.
+    lv_llen = strlen( lv_letters ).
+    WHILE lv_j < lv_llen.
+      lv_ch = lv_letters+lv_j(1).
+      FIND lv_ch IN sy-abcde MATCH OFFSET lv_off.
+      IF sy-subrc <> 0.
+        RETURN.
+      ENDIF.
+      lv_n = lv_n * 26 + lv_off + 1.
+      lv_j = lv_j + 1.
+    ENDWHILE.
+    TRY.
+        ev_row = lv_digits.
+      CATCH cx_sy_conversion_error cx_root.
+        RETURN.
+    ENDTRY.
+    ev_col = lv_n.
+    ev_ok = abap_true.
+  ENDMETHOD.
+
+  METHOD cell_value.
+    DATA lv_v TYPE string.
+    DATA lv_idx TYPE i.
+    DATA lv_len TYPE i.
+
+    lv_v = condense( val = texts_of( iv_xml = iv_inner iv_tag = `v` ) ).
+    IF iv_type = `s`.
+      IF lv_v IS INITIAL.
+        RETURN.
+      ENDIF.
+      TRY.
+          lv_idx = lv_v.
+        CATCH cx_sy_conversion_error cx_root.
+          RETURN.
+      ENDTRY.
+      IF lv_idx < 0.
+        RETURN.
+      ENDIF.
+      READ TABLE it_shared INTO rv_text INDEX lv_idx + 1.
+      IF sy-subrc <> 0.
+        CLEAR rv_text.
+      ENDIF.
       RETURN.
     ENDIF.
 
-    IF try_identity_bool( io_cell ) = abap_true.
-      rv_text = 'X'.
+    IF iv_type = `b`.
+      IF lv_v = `1`.
+        rv_text = `X`.
+      ENDIF.
       RETURN.
     ENDIF.
 
-    IF try_string_value( EXPORTING io_cell = io_cell
-                         IMPORTING ev_text = lv_text ) = abap_true
-    AND lv_text IS NOT INITIAL.
-      rv_text = normalize( iv_text = lv_text iv_column = iv_column ).
+    IF iv_type = `inlinestr`.
+      rv_text = texts_of( iv_xml = iv_inner iv_tag = `t` ).
+      RETURN.
     ENDIF.
-  ENDMETHOD.
 
-  METHOD try_identity_string.
-    CLEAR ev_text.
-    TRY.
-        io_cell->get_value( )->set_transformation(
-          xco_cp_xlsx_read_access=>value_transformation->identity
-        )->write_to( REF #( ev_text ) ).
-        rv_ok = abap_true.
-      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
-        CLEAR ev_text.
-        rv_ok = abap_false.
-    ENDTRY.
-  ENDMETHOD.
+    IF iv_type = `e`.
+      RETURN.
+    ENDIF.
 
-  METHOD try_identity_number.
-    CLEAR ev_number.
-    TRY.
-        io_cell->get_value( )->set_transformation(
-          xco_cp_xlsx_read_access=>value_transformation->identity
-        )->write_to( REF #( ev_number ) ).
-        rv_ok = abap_true.
-      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
-        CLEAR ev_number.
-        rv_ok = abap_false.
-    ENDTRY.
-  ENDMETHOD.
+    IF iv_type = `d`.
+      lv_len = strlen( lv_v ).
+      IF lv_len >= 10 AND lv_v+4(1) = `-`.
+        rv_text = lv_v+0(10).
+        RETURN.
+      ENDIF.
+    ENDIF.
 
-  METHOD try_best_effort_date.
-    CLEAR ev_date.
-    TRY.
-        io_cell->get_value( )->set_transformation(
-          xco_cp_xlsx_read_access=>value_transformation->best_effort
-        )->write_to( REF #( ev_date ) ).
-        rv_ok = abap_true.
-      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
-        CLEAR ev_date.
-        rv_ok = abap_false.
-    ENDTRY.
-  ENDMETHOD.
-
-  METHOD try_identity_bool.
-    DATA lv_bool TYPE abap_bool.
-    TRY.
-        io_cell->get_value( )->set_transformation(
-          xco_cp_xlsx_read_access=>value_transformation->identity
-        )->write_to( REF #( lv_bool ) ).
-        rv_true = lv_bool.
-      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
-        rv_true = abap_false.
-    ENDTRY.
-  ENDMETHOD.
-
-  METHOD try_string_value.
-    CLEAR ev_text.
-    TRY.
-        io_cell->get_value( )->set_transformation(
-          xco_cp_xlsx_read_access=>value_transformation->string_value
-        )->write_to( REF #( ev_text ) ).
-        rv_ok = abap_true.
-      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
-        CLEAR ev_text.
-        rv_ok = abap_false.
-    ENDTRY.
+    rv_text = lv_v.
   ENDMETHOD.
 
   METHOD normalize.
+
     DATA(lv_text) = condense( val = iv_text ).
     IF lv_text IS INITIAL.
       RETURN.
@@ -491,11 +833,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
     lv_file_content = keys[ 1 ]-%param-fileContent.
 
-    DATA(lo_document)  = xco_cp_xlsx=>document->for_file_content( lv_file_content )->read_access( ).
-    DATA(lo_worksheet) = lo_document->get_workbook( )->worksheet->at_position( 1 ).
-    DATA(lo_cursor)    = lo_worksheet->cursor(
-                           io_column = xco_cp_xlsx=>coordinate->for_alphabetic_value( 'A' )
-                           io_row    = xco_cp_xlsx=>coordinate->for_numeric_value( 2 ) ).
+    DATA(lt_cell) = lcl_xlsx_cell=>grid_of( iv_content = lv_file_content ).
 
     DATA(lv_row) = 2.
     WHILE lv_row <= 5000.
@@ -505,15 +843,13 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       DO 10 TIMES.
         DATA(lv_col) = sy-index.
         DATA(lv_cell) = ``.
-
-        TRY.
-            IF lo_cursor->has_cell( ) = abap_true.
-              lv_cell = lcl_xlsx_cell=>text_of( io_cell   = lo_cursor->get_cell( )
-                                                iv_column = lv_col ).
-            ENDIF.
-          CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
-            CLEAR lv_cell.
-        ENDTRY.
+        READ TABLE lt_cell INTO DATA(ls_cell)
+             WITH TABLE KEY row = lv_row
+                            col = lv_col.
+        IF sy-subrc = 0.
+          lv_cell = lcl_xlsx_cell=>text_of( iv_raw    = ls_cell-val
+                                            iv_column = lv_col ).
+        ENDIF.
 
         DATA(lv_vis) = condense( val = lv_cell ).
         IF lv_vis IS NOT INITIAL.
@@ -532,8 +868,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           WHEN 9.  ls_excel-moneda       = lv_cell.
           WHEN 10. ls_excel-fechafactura = lv_cell.
         ENDCASE.
-
-        lo_cursor->move_right( ).
       ENDDO.
 
       IF lv_blank = abap_true.
@@ -541,10 +875,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       ENDIF.
 
       APPEND ls_excel TO lt_excel.
-
       lv_row = lv_row + 1.
-      lo_cursor->set_column( xco_cp_xlsx=>coordinate->for_alphabetic_value( 'A' ) ).
-      lo_cursor->set_row( xco_cp_xlsx=>coordinate->for_numeric_value( lv_row ) ).
     ENDWHILE.
 
     DELETE lt_excel WHERE proveedor IS INITIAL
