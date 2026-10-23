@@ -10,7 +10,6 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
              Material     TYPE matnr,
              Precio       TYPE c LENGTH 20,
              Moneda       TYPE waers,
-             Cantidad     TYPE c LENGTH 20,
              FechaFactura TYPE c LENGTH 10,
            END OF ty_excel,
            BEGIN OF ty_posicion,
@@ -128,9 +127,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           lt_currency      TYPE HASHED TABLE OF I_Currency         WITH UNIQUE KEY Currency,
           lv_file_content  TYPE xstring,
           lv_precio        TYPE zmm_moncomp_log-precio_asn,
-          lv_cantidad      TYPE bprei,
           lv_precio_norm   TYPE string,
-          lv_cantidad_norm TYPE string,
           lv_utc           TYPE utclong,
           lv_fecha         TYPE d,
           lv_fecha_raw     TYPE string,
@@ -239,7 +236,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         INTO TABLE @lt_currency.
 
       LOOP AT lt_excel ASSIGNING FIELD-SYMBOL(<fs_excel>).
-        CLEAR: lv_precio, lv_cantidad, lv_precio_norm, lv_cantidad_norm, lv_utc, lv_fecha, lv_fecha_raw, lv_fecha_ok.
+        CLEAR: lv_precio, lv_precio_norm, lv_utc, lv_fecha, lv_fecha_raw, lv_fecha_ok.
 
         IF <fs_excel>-proveedor IS INITIAL OR <fs_excel>-oc IS INITIAL OR <fs_excel>-pos IS INITIAL.
           failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
@@ -425,25 +422,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             ENDTRY.
           ENDIF.
 
-          IF <fs_excel>-cantidad IS NOT INITIAL.
-            lv_cantidad_norm = replace( val = <fs_excel>-cantidad sub = ',' with = '.' ).
-
-            TRY.
-                lv_cantidad = CONV bprei( lv_cantidad_norm ).
-              CATCH cx_sy_conversion_no_number
-                    cx_sy_conversion_overflow
-                    cx_sy_conversion_error.
-                failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
-                reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
-                                                    %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                        number   = 012
-                                                                        v1       = <fs_excel>-cantidad
-                                                                        severity = if_abap_behv_message=>severity-error ) ) ).
-                CLEAR lcl_buffer=>gt_log.
-                RETURN.
-            ENDTRY.
-          ENDIF.
-
           IF <fs_excel>-factura IS INITIAL.
             failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
             reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
@@ -516,12 +494,17 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                vbeln    TYPE vbeln_vl,
              END OF ty_entrega.
 
-      DATA: lt_entrega TYPE SORTED TABLE OF ty_entrega WITH UNIQUE KEY oc posicion vbeln,
-            lt_zasn    TYPE STANDARD TABLE OF zi_mm_zasn_poitem,
-            lv_hits    TYPE i,
-            lv_vbeln   TYPE vbeln_vl,
-            lv_pr_zasn TYPE zi_mm_zasn_poitem-PrecioUnitarioVigente,
-            lv_pr_conf TYPE zi_mm_zasn_poitem-PrecioConflicto.
+      TYPES: BEGIN OF ty_zasn_grp,
+               purchaseorder     TYPE vdm_purchaseorder,
+               purchaseorderitem TYPE vdm_purchaseorderitem,
+               lifexmin          TYPE c LENGTH 35,
+               entregas          TYPE STANDARD TABLE OF zi_mm_zasn_poitem WITH EMPTY KEY,
+             END OF ty_zasn_grp.
+
+      DATA: lt_entrega  TYPE SORTED TABLE OF ty_entrega WITH UNIQUE KEY oc posicion vbeln,
+            lt_zasn     TYPE STANDARD TABLE OF zi_mm_zasn_poitem,
+            lt_zasn_grp TYPE HASHED TABLE OF ty_zasn_grp
+                          WITH UNIQUE KEY purchaseorder purchaseorderitem lifexmin.
 
       SELECT *                                "#EC CI_ALL_FIELDS_NEEDED
         FROM zi_mm_zasn_poitem
@@ -530,21 +513,27 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           AND PurchaseOrderItem = @lt_excel_ok-pos
         INTO TABLE @lt_zasn.
 
+      LOOP AT lt_zasn ASSIGNING FIELD-SYMBOL(<fs_zasn>).
+        READ TABLE lt_zasn_grp ASSIGNING FIELD-SYMBOL(<fs_grp>)
+            WITH TABLE KEY purchaseorder     = <fs_zasn>-PurchaseOrder
+                           purchaseorderitem = <fs_zasn>-PurchaseOrderItem
+                           lifexmin          = <fs_zasn>-LifexMin.
+        IF sy-subrc IS NOT INITIAL.
+          INSERT VALUE #( purchaseorder     = <fs_zasn>-PurchaseOrder
+                          purchaseorderitem = <fs_zasn>-PurchaseOrderItem
+                          lifexmin          = <fs_zasn>-LifexMin )
+                 INTO TABLE lt_zasn_grp
+                 ASSIGNING <fs_grp>.
+        ENDIF.
+        APPEND <fs_zasn> TO <fs_grp>-entregas.
+      ENDLOOP.
+
       LOOP AT lt_excel_ok ASSIGNING FIELD-SYMBOL(<fs_ok>).
-        CLEAR: lv_hits, lv_vbeln, lv_pr_zasn, lv_pr_conf.
-
-        LOOP AT lt_zasn ASSIGNING FIELD-SYMBOL(<fs_zasn>)
-            WHERE PurchaseOrder     = <fs_ok>-oc
-              AND PurchaseOrderItem = <fs_ok>-pos
-              AND LifexMin          = <fs_ok>-factura
-              AND DocumentDate      = <fs_ok>-fecha.
-          lv_hits    = lv_hits + 1.
-          lv_vbeln   = <fs_zasn>-DeliveryDocument.
-          lv_pr_zasn = <fs_zasn>-PrecioUnitarioVigente.
-          lv_pr_conf = <fs_zasn>-PrecioConflicto.
-        ENDLOOP.
-
-        IF lv_hits = 0.
+        READ TABLE lt_zasn_grp ASSIGNING <fs_grp>
+            WITH TABLE KEY purchaseorder     = <fs_ok>-oc
+                           purchaseorderitem = <fs_ok>-pos
+                           lifexmin          = <fs_ok>-factura.
+        IF sy-subrc IS NOT INITIAL.
           failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
           reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
                                               %msg = new_message_with_text(
@@ -552,56 +541,50 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                                        text     = |No hay entrega para OC { <fs_ok>-oc } pos { <fs_ok>-pos }| ) ) ).
           CLEAR lcl_buffer=>gt_log.
           RETURN.
-        ELSEIF lv_hits > 1.
-          failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
-          reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
-                                              %msg = new_message_with_text(
-                                                       severity = if_abap_behv_message=>severity-error
-                                                       text     = |Hay más de una entrega para OC { <fs_ok>-oc } pos { <fs_ok>-pos }| ) ) ).
-          CLEAR lcl_buffer=>gt_log.
-          RETURN.
         ENDIF.
 
-        IF lv_pr_zasn > 0 OR lv_pr_conf = 'X'.
-          failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
-          reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
-                                              %msg = new_message_with_text(
-                                                       severity = if_abap_behv_message=>severity-error
-                                                       text     = 'el precio ya fue inducido mediante el ASN, contacte administrador' ) ) ).
-          CLEAR lcl_buffer=>gt_log.
-          RETURN.
-        ENDIF.
+        LOOP AT <fs_grp>-entregas ASSIGNING <fs_zasn>.
+          IF <fs_zasn>-PrecioUnitarioVigente > 0 OR <fs_zasn>-PrecioConflicto = 'X'.
+            failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
+            reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
+                                                %msg = new_message_with_text(
+                                                         severity = if_abap_behv_message=>severity-error
+                                                         text     = 'el precio ya fue inducido mediante el ASN, contacte administrador' ) ) ).
+            CLEAR lcl_buffer=>gt_log.
+            RETURN.
+          ENDIF.
 
-        READ TABLE lt_entrega TRANSPORTING NO FIELDS
-            WITH KEY oc       = <fs_ok>-oc
-                     posicion = <fs_ok>-pos
-                     vbeln    = lv_vbeln.
-        IF sy-subrc IS INITIAL.
-          failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
-          reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
-                                              %msg = new_message_with_text(
-                                                       severity = if_abap_behv_message=>severity-error
-                                                       text     = |Dos líneas corresponden a la misma entrega { lv_vbeln }| ) ) ).
-          CLEAR lcl_buffer=>gt_log.
-          RETURN.
-        ENDIF.
+          READ TABLE lt_entrega TRANSPORTING NO FIELDS
+              WITH TABLE KEY oc       = <fs_ok>-oc
+                             posicion = <fs_ok>-pos
+                             vbeln    = <fs_zasn>-DeliveryDocument.
+          IF sy-subrc IS INITIAL.
+            failed-zi_mm_moncomp   = VALUE #( ( %cid = keys[ 1 ]-%cid ) ).
+            reported-zi_mm_moncomp = VALUE #( ( %cid = keys[ 1 ]-%cid
+                                                %msg = new_message_with_text(
+                                                         severity = if_abap_behv_message=>severity-error
+                                                         text     = |Dos líneas corresponden a la misma entrega { <fs_zasn>-DeliveryDocument }| ) ) ).
+            CLEAR lcl_buffer=>gt_log.
+            RETURN.
+          ENDIF.
 
-        INSERT VALUE #( oc       = <fs_ok>-oc
-                        posicion = <fs_ok>-pos
-                        vbeln    = lv_vbeln ) INTO TABLE lt_entrega.
+          INSERT VALUE #( oc       = <fs_ok>-oc
+                          posicion = <fs_ok>-pos
+                          vbeln    = <fs_zasn>-DeliveryDocument ) INTO TABLE lt_entrega.
 
-        lv_utc = utclong_add( val = utclong_current( ) seconds = 1 ).
+          lv_utc = utclong_add( val = utclong_current( ) seconds = 1 ).
 
-        APPEND VALUE #( client        = sy-mandt
-                        oc            = <fs_ok>-oc
-                        posicion      = <fs_ok>-pos
-                        vbeln         = lv_vbeln
-                        usuario       = cl_abap_context_info=>get_user_technical_name( )
-                        fecha_hora    = cl_abap_tstmp=>utclong2tstmp( lv_utc )
-                        precio_asn    = <fs_ok>-precio
-                        moneda_asn    = <fs_ok>-moneda
-                        nota          = <fs_ok>-factura
-                        fecha_factura = <fs_ok>-fecha ) TO lcl_buffer=>gt_log.
+          APPEND VALUE #( client        = sy-mandt
+                          oc            = <fs_ok>-oc
+                          posicion      = <fs_ok>-pos
+                          vbeln         = <fs_zasn>-DeliveryDocument
+                          usuario       = cl_abap_context_info=>get_user_technical_name( )
+                          fecha_hora    = cl_abap_tstmp=>utclong2tstmp( lv_utc )
+                          precio_asn    = <fs_ok>-precio
+                          moneda_asn    = <fs_ok>-moneda
+                          nota          = <fs_ok>-factura
+                          fecha_factura = <fs_ok>-fecha ) TO lcl_buffer=>gt_log.
+        ENDLOOP.
       ENDLOOP.
 
     ENDIF.
