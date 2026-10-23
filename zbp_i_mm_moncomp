@@ -93,27 +93,31 @@ ENDCLASS.
 
 CLASS lcl_xlsx_cell IMPLEMENTATION.
   METHOD text_of.
+    DATA: lv_text   TYPE string,
+          lv_number TYPE decfloat34,
+          lv_date   TYPE d.
+
     IF io_cell IS NOT BOUND OR io_cell->has_value( ) = abap_false.
       RETURN.
     ENDIF.
 
     "Shared string via identity. Numero, fecha y booleano no usan string_value.
     IF try_identity_string( EXPORTING io_cell = io_cell
-                            IMPORTING ev_text = DATA(lv_text) ) = abap_true
+                            IMPORTING ev_text = lv_text ) = abap_true
     AND lv_text IS NOT INITIAL.
       rv_text = normalize( iv_text = lv_text iv_column = iv_column ).
       RETURN.
     ENDIF.
 
     IF try_identity_number( EXPORTING io_cell   = io_cell
-                            IMPORTING ev_number = DATA(lv_number) ) = abap_true.
+                            IMPORTING ev_number = lv_number ) = abap_true.
       rv_text = from_number( iv_number = lv_number iv_column = iv_column ).
       RETURN.
     ENDIF.
 
     IF iv_column = c_col_fecha
     AND try_best_effort_date( EXPORTING io_cell = io_cell
-                              IMPORTING ev_date = DATA(lv_date) ) = abap_true
+                              IMPORTING ev_date = lv_date ) = abap_true
     AND lv_date IS NOT INITIAL
     AND lv_date+0(4) >= '1900'
     AND lv_date+0(4) <= '2199'.
