@@ -1,4 +1,4 @@
-@EndUserText.label: 'Filtro paso 8'
+@EndUserText.label: 'Filtro para normalizar precio OC'
 @Metadata.allowExtensions: true
 define root abstract entity ZAE_MM_PASO8_FILTRO
 {
