@@ -1321,9 +1321,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
     IF lt_rows IS INITIAL.
       reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                %cid = lv_cid
-                                               %msg = new_message_with_text(
-                                                        severity = if_abap_behv_message=>severity-information
-                                                        text     = 'No hay posiciones del paso 8 para el filtro informado.' ) ) ).
+                                               %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                   number   = 039
+                                                                   severity = if_abap_behv_message=>severity-information ) ) ).
       RETURN.
     ENDIF.
 
@@ -1362,9 +1362,11 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       IF ls_first-IsNfm = 'X'.
         reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                  %cid = lv_cid
-                                                 %msg = new_message_with_text(
-                                                          severity = if_abap_behv_message=>severity-error
-                                                          text     = |OC { <fs_grp>-oc } posición { <fs_grp>-posicion }: posición NFM, el paso 8 no graba el precio neto.| ) ) ).
+                                                 %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                     number   = 040
+                                                                     v1       = <fs_grp>-oc
+                                                                     v2       = <fs_grp>-posicion
+                                                                     severity = if_abap_behv_message=>severity-error ) ) ).
         INSERT VALUE ty_ocpos( oc = <fs_grp>-oc posicion = <fs_grp>-posicion ) INTO TABLE lt_err.
         CONTINUE.
       ENDIF.
