@@ -33,6 +33,338 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
                            WITH UNIQUE HASHED KEY id COMPONENTS oc.
 ENDCLASS.
 
+CLASS lcl_xlsx_cell DEFINITION.
+  PUBLIC SECTION.
+    CLASS-METHODS text_of
+      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
+                iv_column      TYPE i
+      RETURNING VALUE(rv_text) TYPE string.
+  PRIVATE SECTION.
+    CONSTANTS: c_col_precio TYPE i VALUE 8,
+               c_col_fecha  TYPE i VALUE 10.
+
+    CLASS-METHODS try_identity_string
+      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
+      EXPORTING ev_text        TYPE string
+      RETURNING VALUE(rv_ok)   TYPE abap_bool.
+
+    CLASS-METHODS try_identity_number
+      IMPORTING io_cell          TYPE REF TO if_xco_xlsx_ra_cell
+      EXPORTING ev_number        TYPE decfloat34
+      RETURNING VALUE(rv_ok)     TYPE abap_bool.
+
+    CLASS-METHODS try_best_effort_date
+      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
+      EXPORTING ev_date        TYPE d
+      RETURNING VALUE(rv_ok)   TYPE abap_bool.
+
+    CLASS-METHODS try_identity_bool
+      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
+      RETURNING VALUE(rv_true) TYPE abap_bool.
+
+    CLASS-METHODS try_string_value
+      IMPORTING io_cell        TYPE REF TO if_xco_xlsx_ra_cell
+      EXPORTING ev_text        TYPE string
+      RETURNING VALUE(rv_ok)   TYPE abap_bool.
+
+    CLASS-METHODS normalize
+      IMPORTING iv_text        TYPE string
+                iv_column      TYPE i
+      RETURNING VALUE(rv_text) TYPE string.
+
+    CLASS-METHODS from_number
+      IMPORTING iv_number      TYPE decfloat34
+                iv_column      TYPE i
+      RETURNING VALUE(rv_text) TYPE string.
+
+    CLASS-METHODS is_plain_number
+      IMPORTING iv_text       TYPE string
+      RETURNING VALUE(rv_yes) TYPE abap_bool.
+
+    CLASS-METHODS plain_number
+      IMPORTING iv_text        TYPE string
+                iv_column      TYPE i
+      RETURNING VALUE(rv_text) TYPE string.
+
+    CLASS-METHODS serial_to_date
+      IMPORTING iv_number      TYPE decfloat34
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS lcl_xlsx_cell IMPLEMENTATION.
+  METHOD text_of.
+    IF io_cell IS NOT BOUND OR io_cell->has_value( ) = abap_false.
+      RETURN.
+    ENDIF.
+
+    "Shared string via identity. Numero, fecha y booleano no usan string_value.
+    IF try_identity_string( EXPORTING io_cell = io_cell
+                            IMPORTING ev_text = DATA(lv_text) ) = abap_true
+    AND lv_text IS NOT INITIAL.
+      rv_text = normalize( iv_text = lv_text iv_column = iv_column ).
+      RETURN.
+    ENDIF.
+
+    IF try_identity_number( EXPORTING io_cell   = io_cell
+                            IMPORTING ev_number = DATA(lv_number) ) = abap_true.
+      rv_text = from_number( iv_number = lv_number iv_column = iv_column ).
+      RETURN.
+    ENDIF.
+
+    IF iv_column = c_col_fecha
+    AND try_best_effort_date( EXPORTING io_cell = io_cell
+                              IMPORTING ev_date = DATA(lv_date) ) = abap_true
+    AND lv_date IS NOT INITIAL
+    AND lv_date+0(4) >= '1900'
+    AND lv_date+0(4) <= '2199'.
+      rv_text = lv_date.
+      RETURN.
+    ENDIF.
+
+    IF try_identity_bool( io_cell ) = abap_true.
+      rv_text = 'X'.
+      RETURN.
+    ENDIF.
+
+    IF try_string_value( EXPORTING io_cell = io_cell
+                         IMPORTING ev_text = lv_text ) = abap_true
+    AND lv_text IS NOT INITIAL.
+      rv_text = normalize( iv_text = lv_text iv_column = iv_column ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD try_identity_string.
+    CLEAR ev_text.
+    TRY.
+        io_cell->get_value( )->set_transformation(
+          xco_cp_xlsx_read_access=>value_transformation->identity
+        )->write_to( REF #( ev_text ) ).
+        rv_ok = abap_true.
+      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
+        CLEAR ev_text.
+        rv_ok = abap_false.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD try_identity_number.
+    CLEAR ev_number.
+    TRY.
+        io_cell->get_value( )->set_transformation(
+          xco_cp_xlsx_read_access=>value_transformation->identity
+        )->write_to( REF #( ev_number ) ).
+        rv_ok = abap_true.
+      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
+        CLEAR ev_number.
+        rv_ok = abap_false.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD try_best_effort_date.
+    CLEAR ev_date.
+    TRY.
+        io_cell->get_value( )->set_transformation(
+          xco_cp_xlsx_read_access=>value_transformation->best_effort
+        )->write_to( REF #( ev_date ) ).
+        rv_ok = abap_true.
+      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
+        CLEAR ev_date.
+        rv_ok = abap_false.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD try_identity_bool.
+    DATA lv_bool TYPE abap_bool.
+    TRY.
+        io_cell->get_value( )->set_transformation(
+          xco_cp_xlsx_read_access=>value_transformation->identity
+        )->write_to( REF #( lv_bool ) ).
+        rv_true = lv_bool.
+      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
+        rv_true = abap_false.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD try_string_value.
+    CLEAR ev_text.
+    TRY.
+        io_cell->get_value( )->set_transformation(
+          xco_cp_xlsx_read_access=>value_transformation->string_value
+        )->write_to( REF #( ev_text ) ).
+        rv_ok = abap_true.
+      CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
+        CLEAR ev_text.
+        rv_ok = abap_false.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD normalize.
+    DATA(lv_text) = condense( val = iv_text ).
+    IF lv_text IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    IF iv_column = c_col_fecha.
+      DATA(lv_len) = strlen( lv_text ).
+      IF lv_len = 8 OR lv_len = 10.
+        rv_text = lv_text.
+        RETURN.
+      ENDIF.
+    ENDIF.
+
+    IF is_plain_number( lv_text ) = abap_false.
+      rv_text = lv_text.
+      RETURN.
+    ENDIF.
+
+    IF iv_column = c_col_fecha.
+      DATA lv_serial TYPE decfloat34.
+      TRY.
+          lv_serial = lv_text.
+          rv_text = serial_to_date( lv_serial ).
+        CATCH cx_sy_conversion_error cx_root.
+          rv_text = lv_text.
+      ENDTRY.
+      RETURN.
+    ENDIF.
+
+    rv_text = plain_number( iv_text = lv_text iv_column = iv_column ).
+  ENDMETHOD.
+
+  METHOD from_number.
+    IF iv_column = c_col_fecha.
+      TRY.
+          DATA(lv_digits) = CONV i( trunc( abs( iv_number ) ) ).
+          IF lv_digits >= 10000000.
+            rv_text = |{ CONV int8( trunc( iv_number ) ) }|.
+          ELSE.
+            rv_text = serial_to_date( iv_number ).
+          ENDIF.
+        CATCH cx_sy_conversion_error cx_sy_arithmetic_error cx_root.
+          rv_text = condense( val = |{ iv_number STYLE = SIMPLE }| ).
+      ENDTRY.
+      RETURN.
+    ENDIF.
+
+    IF iv_column = c_col_precio OR iv_number <> trunc( iv_number ).
+      rv_text = condense( val = |{ iv_number STYLE = SIMPLE }| ).
+      RETURN.
+    ENDIF.
+
+    TRY.
+        rv_text = |{ CONV int8( trunc( iv_number ) ) }|.
+      CATCH cx_sy_conversion_error cx_root.
+        rv_text = condense( val = |{ iv_number STYLE = SIMPLE }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD is_plain_number.
+    DATA(lv_text) = condense( val = iv_text ).
+    DATA(lv_len) = strlen( lv_text ).
+    IF lv_len = 0.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_off) = 0.
+    IF lv_text+0(1) = '-' OR lv_text+0(1) = '+'.
+      lv_off = 1.
+    ENDIF.
+    IF lv_off >= lv_len.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_body) = lv_text+lv_off.
+    DATA(lv_exp) = ``.
+    DATA(lv_e) = find( val = to_upper( lv_body ) sub = 'E' ).
+    IF lv_e = 0.
+      RETURN.
+    ELSEIF lv_e > 0.
+      lv_exp = lv_body+lv_e.
+      lv_body = lv_body(lv_e).
+    ENDIF.
+
+    IF lv_body IS INITIAL.
+      RETURN.
+    ENDIF.
+    IF strlen( lv_body ) > 1 AND lv_body+0(1) = '0' AND lv_body+1(1) <> '.'.
+      RETURN.
+    ENDIF.
+
+    DATA: lv_dot   TYPE i,
+          lv_digit TYPE abap_bool,
+          lv_i     TYPE i.
+    DATA(lv_blen) = strlen( lv_body ).
+    WHILE lv_i < lv_blen.
+      DATA(lv_ch) = lv_body+lv_i(1).
+      IF lv_ch = '.'.
+        lv_dot = lv_dot + 1.
+        IF lv_dot > 1.
+          RETURN.
+        ENDIF.
+      ELSEIF lv_ch >= '0' AND lv_ch <= '9'.
+        lv_digit = abap_true.
+      ELSE.
+        RETURN.
+      ENDIF.
+      lv_i = lv_i + 1.
+    ENDWHILE.
+
+    IF lv_digit = abap_false.
+      RETURN.
+    ENDIF.
+
+    IF lv_exp IS NOT INITIAL.
+      DATA(lv_elen) = strlen( lv_exp ).
+      DATA(lv_eoff) = 1.
+      IF lv_elen < 2.
+        RETURN.
+      ENDIF.
+      IF lv_exp+1(1) = '+' OR lv_exp+1(1) = '-'.
+        lv_eoff = 2.
+      ENDIF.
+      IF lv_eoff >= lv_elen.
+        RETURN.
+      ENDIF.
+      lv_digit = abap_false.
+      lv_i = lv_eoff.
+      WHILE lv_i < lv_elen.
+        lv_ch = lv_exp+lv_i(1).
+        IF lv_ch < '0' OR lv_ch > '9'.
+          RETURN.
+        ENDIF.
+        lv_digit = abap_true.
+        lv_i = lv_i + 1.
+      ENDWHILE.
+      IF lv_digit = abap_false.
+        RETURN.
+      ENDIF.
+    ENDIF.
+
+    rv_yes = abap_true.
+  ENDMETHOD.
+
+  METHOD plain_number.
+    DATA lv_num TYPE decfloat34.
+    TRY.
+        lv_num = iv_text.
+      CATCH cx_sy_conversion_error cx_root.
+        rv_text = iv_text.
+        RETURN.
+    ENDTRY.
+    rv_text = from_number( iv_number = lv_num iv_column = iv_column ).
+  ENDMETHOD.
+
+  METHOD serial_to_date.
+    TRY.
+        DATA(lv_days) = CONV i( trunc( iv_number ) ).
+        DATA(lv_date) = CONV d( '18991230' ).
+        lv_date = lv_date + lv_days.
+        rv_text = lv_date.
+      CATCH cx_sy_conversion_error cx_sy_arithmetic_error cx_root.
+        rv_text = condense( val = |{ iv_number STYLE = SIMPLE }| ).
+    ENDTRY.
+  ENDMETHOD.
+ENDCLASS.
+
 CLASS lhc_ZI_MM_MONCOMP DEFINITION INHERITING FROM cl_abap_behavior_handler.
   PRIVATE SECTION.
 
@@ -155,15 +487,60 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
     lv_file_content = keys[ 1 ]-%param-fileContent.
 
-    DATA(lo_document)   = xco_cp_xlsx=>document->for_file_content( lv_file_content )->read_access( ).
-    DATA(lo_worksheet)  = lo_document->get_workbook( )->worksheet->at_position( 1 ).
-    DATA(o_sel_pattern) = xco_cp_xlsx_selection=>pattern_builder->simple_from_to( )->from_row(
-                          xco_cp_xlsx=>coordinate->for_numeric_value( 2 ) )->get_pattern( ).
+    DATA(lo_document)  = xco_cp_xlsx=>document->for_file_content( lv_file_content )->read_access( ).
+    DATA(lo_worksheet) = lo_document->get_workbook( )->worksheet->at_position( 1 ).
+    DATA(lo_cursor)    = lo_worksheet->cursor(
+                           io_column = xco_cp_xlsx=>coordinate->for_alphabetic_value( 'A' )
+                           io_row    = xco_cp_xlsx=>coordinate->for_numeric_value( 2 ) ).
 
-    lo_worksheet->select( o_sel_pattern
-                        )->row_stream(
-                        )->operation->write_to( REF #( lt_excel )
-                        )->set_value_transformation( xco_cp_xlsx_read_access=>value_transformation->string_value )->execute( ).
+    DATA(lv_row) = 2.
+    WHILE lv_row <= 5000.
+      DATA(lv_blank) = abap_true.
+      DATA(ls_excel) = VALUE lcl_buffer=>ty_excel( ).
+
+      DO 10 TIMES.
+        DATA(lv_col) = sy-index.
+        DATA(lv_cell) = ``.
+
+        TRY.
+            IF lo_cursor->has_cell( ) = abap_true.
+              lv_cell = lcl_xlsx_cell=>text_of( io_cell   = lo_cursor->get_cell( )
+                                                iv_column = lv_col ).
+            ENDIF.
+          CATCH cx_sy_ref_is_initial cx_sy_conversion_error cx_root.
+            CLEAR lv_cell.
+        ENDTRY.
+
+        IF condense( val = lv_cell ) IS NOT INITIAL.
+          lv_blank = abap_false.
+        ENDIF.
+
+        CASE lv_col.
+          WHEN 1.  ls_excel-sociedad     = lv_cell.
+          WHEN 2.  ls_excel-centro       = lv_cell.
+          WHEN 3.  ls_excel-proveedor    = lv_cell.
+          WHEN 4.  ls_excel-oc           = lv_cell.
+          WHEN 5.  ls_excel-pos          = lv_cell.
+          WHEN 6.  ls_excel-factura      = lv_cell.
+          WHEN 7.  ls_excel-material     = lv_cell.
+          WHEN 8.  ls_excel-precio       = lv_cell.
+          WHEN 9.  ls_excel-moneda       = lv_cell.
+          WHEN 10. ls_excel-fechafactura = lv_cell.
+        ENDCASE.
+
+        lo_cursor->move_right( ).
+      ENDDO.
+
+      IF lv_blank = abap_true.
+        EXIT.
+      ENDIF.
+
+      APPEND ls_excel TO lt_excel.
+
+      lv_row = lv_row + 1.
+      lo_cursor->set_column( xco_cp_xlsx=>coordinate->for_alphabetic_value( 'A' ) ).
+      lo_cursor->set_row( xco_cp_xlsx=>coordinate->for_numeric_value( lv_row ) ).
+    ENDWHILE.
 
     DELETE lt_excel WHERE proveedor IS INITIAL
                       AND oc        IS INITIAL
