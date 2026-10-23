@@ -515,7 +515,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             CLEAR lv_cell.
         ENDTRY.
 
-        IF condense( val = lv_cell ) IS NOT INITIAL.
+        DATA(lv_vis) = condense( val = lv_cell ).
+        IF lv_vis IS NOT INITIAL.
           lv_blank = abap_false.
         ENDIF.
 
