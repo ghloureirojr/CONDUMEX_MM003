@@ -1322,7 +1322,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                %cid = lv_cid
                                                %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                   number   = 039
+                                                                   number   = 038
                                                                    severity = if_abap_behv_message=>severity-information ) ) ).
       RETURN.
     ENDIF.
@@ -1363,7 +1363,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                  %cid = lv_cid
                                                  %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                     number   = 040
+                                                                     number   = 039
                                                                      v1       = <fs_grp>-oc
                                                                      v2       = <fs_grp>-posicion
                                                                      severity = if_abap_behv_message=>severity-error ) ) ).
