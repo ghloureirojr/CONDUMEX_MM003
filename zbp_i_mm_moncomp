@@ -212,7 +212,6 @@ CLASS lcl_xlsx_cell IMPLEMENTATION.
     DATA lv_bs TYPE c LENGTH 1 VALUE '\'.
     DATA lv_x TYPE xstring.
     DATA lv_off TYPE i.
-    DATA lo_conv TYPE REF TO cl_abap_conv_in_ce.
 
     lv_want = to_lower( iv_name ).
     LOOP AT io_zip->files INTO DATA(ls_zip).
@@ -234,9 +233,7 @@ CLASS lcl_xlsx_cell IMPLEMENTATION.
         CONTINUE.
       ENDIF.
       IF lv_x IS NOT INITIAL.
-        lo_conv = cl_abap_conv_in_ce=>create( encoding = `UTF-8` ).
-        lo_conv->convert( EXPORTING input = lv_x
-                          IMPORTING data  = rv_xml ).
+        rv_xml = cl_abap_conv_codepage=>create_in( )->convert( lv_x ).
       ENDIF.
       RETURN.
     ENDLOOP.
@@ -455,6 +452,7 @@ CLASS lcl_xlsx_cell IMPLEMENTATION.
     DATA lv_ch TYPE c LENGTH 1.
     DATA lv_letters TYPE string.
     DATA lv_digits TYPE string.
+    CONSTANTS lc_abc TYPE string VALUE `ABCDEFGHIJKLMNOPQRSTUVWXYZ`.
 
     CLEAR: ev_col, ev_row, ev_ok.
     lv_len = strlen( iv_ref ).
@@ -474,8 +472,8 @@ CLASS lcl_xlsx_cell IMPLEMENTATION.
     lv_llen = strlen( lv_letters ).
     WHILE lv_j < lv_llen.
       lv_ch = lv_letters+lv_j(1).
-      FIND lv_ch IN sy-abcde MATCH OFFSET lv_off.
-      IF sy-subrc <> 0.
+      lv_off = find( val = lc_abc sub = lv_ch ).
+      IF lv_off < 0.
         RETURN.
       ENDIF.
       lv_n = lv_n * 26 + lv_off + 1.
