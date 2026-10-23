@@ -3,6 +3,10 @@
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_MONCOMP_PASO8
   as select from ZI_MM_MONCOMP_CALC as calc
+    left outer join ZI_MM_ASN_INFOREC_P8 as inf on  inf.LifexMin          = calc.FacturaRemision
+                                                and inf.DeliveryDocument  = calc.DeliveryDocument
+                                                and inf.PurchaseOrder     = calc.OC
+                                                and inf.PurchaseOrderItem = calc.Posicion
 {
   key calc.OC,
   key calc.Posicion,
@@ -27,9 +31,9 @@ where
       calc.PrecioASN is not null
   and calc.MonedaOC  =  calc.MonedaASN
   and calc.PrecioOC  <> calc.PrecioASN
-  and calc.PrecioASN =  calc.PrecioInforec
+  and calc.PrecioASN =  inf.PrecioInforec
   and(
-        calc.MonedaInforec = calc.MonedaASN
-     or calc.MonedaInforec is initial
+        inf.MonedaInforec = calc.MonedaASN
+     or inf.MonedaInforec is initial
   )
   and calc.Estado    <> 'Actualizado automatico'
