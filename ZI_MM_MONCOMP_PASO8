@@ -1,5 +1,5 @@
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'Paso 8 monitor compras'
+@EndUserText.label: 'Posiciones para normalizar precio OC'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_MONCOMP_PASO8
   as select from ZI_MM_MONCOMP_CALC as calc
