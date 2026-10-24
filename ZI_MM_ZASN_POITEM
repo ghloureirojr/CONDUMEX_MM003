@@ -3,6 +3,8 @@
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_ZASN_POITEM
   as select from ZI_MM_ZASN_POITEM_AGG as agg
+    inner join I_DeliveryDocument as dlv
+      on dlv.DeliveryDocument = agg.DeliveryDocument
 {
   key agg.LifexMin,
   key agg.DeliveryDocument,
@@ -29,3 +31,5 @@ define view entity ZI_MM_ZASN_POITEM
         else ''
       end as PrecioConflicto
 }
+where
+  dlv.OverallGoodsMovementStatus = 'A'
