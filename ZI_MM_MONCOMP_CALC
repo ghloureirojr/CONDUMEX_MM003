@@ -89,13 +89,21 @@ define view entity ZI_MM_MONCOMP_CALC
         ',' )                         as PrecioOCCrudo,
       case
         when instr( $projection.PrecioOCCrudo, ',' ) = 0
-          then concat( $projection.PrecioOCCrudo, ',00' )
-        when substring( rtrim( $projection.PrecioOCCrudo, '0' ), length( rtrim( $projection.PrecioOCCrudo, '0' ) ), 1 ) = ','
-          then concat( rtrim( $projection.PrecioOCCrudo, '0' ), '00' )
-        when length( rtrim( $projection.PrecioOCCrudo, '0' ) ) > 1
-         and substring( rtrim( $projection.PrecioOCCrudo, '0' ), length( rtrim( $projection.PrecioOCCrudo, '0' ) ) - 1, 1 ) = ','
-          then concat( rtrim( $projection.PrecioOCCrudo, '0' ), '0' )
-        else rtrim( $projection.PrecioOCCrudo, '0' )
+          then concat( $projection.PrecioOCCrudo, ',00000' )
+        else concat(
+               substring(
+                 $projection.PrecioOCCrudo,
+                 1,
+                 instr( $projection.PrecioOCCrudo, ',' ) ),
+               substring(
+                 concat(
+                   substring(
+                     $projection.PrecioOCCrudo,
+                     instr( $projection.PrecioOCCrudo, ',' ) + 1,
+                     5 ),
+                   '00000' ),
+                 1,
+                 5 ) )
       end                            as PrecioOCNumTxt,
       cast(
         case
@@ -142,13 +150,21 @@ define view entity ZI_MM_MONCOMP_CALC
         ',' )                         as PrecioInforecCrudo,
       case
         when instr( $projection.PrecioInforecCrudo, ',' ) = 0
-          then concat( $projection.PrecioInforecCrudo, ',00' )
-        when substring( rtrim( $projection.PrecioInforecCrudo, '0' ), length( rtrim( $projection.PrecioInforecCrudo, '0' ) ), 1 ) = ','
-          then concat( rtrim( $projection.PrecioInforecCrudo, '0' ), '00' )
-        when length( rtrim( $projection.PrecioInforecCrudo, '0' ) ) > 1
-         and substring( rtrim( $projection.PrecioInforecCrudo, '0' ), length( rtrim( $projection.PrecioInforecCrudo, '0' ) ) - 1, 1 ) = ','
-          then concat( rtrim( $projection.PrecioInforecCrudo, '0' ), '0' )
-        else rtrim( $projection.PrecioInforecCrudo, '0' )
+          then concat( $projection.PrecioInforecCrudo, ',00000' )
+        else concat(
+               substring(
+                 $projection.PrecioInforecCrudo,
+                 1,
+                 instr( $projection.PrecioInforecCrudo, ',' ) ),
+               substring(
+                 concat(
+                   substring(
+                     $projection.PrecioInforecCrudo,
+                     instr( $projection.PrecioInforecCrudo, ',' ) + 1,
+                     5 ),
+                   '00000' ),
+                 1,
+                 5 ) )
       end                            as PrecioInforecNumTxt,
       cast(
         case
@@ -161,7 +177,7 @@ define view entity ZI_MM_MONCOMP_CALC
           else $projection.PrecioInforecNumTxt
         end
         as abap.char(40) )           as PrecioInforecTexto,
-      pos.NetPriceQuantity           as Cantidad,
+      zasn.CantidadFactura           as Cantidad,
       cast(
         case
           when $projection.MonedaOC = $projection.MonedaASN
@@ -200,7 +216,7 @@ define view entity ZI_MM_MONCOMP_CALC
       zasn.CantidadFactura           as CantidadFactura,
       cast( zasn.PrecioUnitarioVigente as abap.dec(16,5) ) as PrecioUnitarioVigente,
       nfmp.OrderPriceUnit            as UnidadPrecio,
-      nfmp.BaseUnit                  as UnidadBase,
+      pos.PurchaseOrderQuantityUnit  as UnidadBase,
       cast( nfmp.FactorNfm as abap.dec(31,14) ) as FactorNfm,
       @EndUserText.label: 'Precio NFM'
       cast(
