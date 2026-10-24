@@ -1,12 +1,8 @@
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'Posiciones para normalizar precio OC'
+@EndUserText.label: 'Paso 8 monitor compras'
 @Metadata.ignorePropagatedAnnotations: true
 define view entity ZI_MM_MONCOMP_PASO8
   as select from ZI_MM_MONCOMP_CALC as calc
-    left outer join ZI_MM_ASN_INFOREC_P8 as inf on  inf.LifexMin          = calc.FacturaRemision
-                                                and inf.DeliveryDocument  = calc.DeliveryDocument
-                                                and inf.PurchaseOrder     = calc.OC
-                                                and inf.PurchaseOrderItem = calc.Posicion
 {
   key calc.OC,
   key calc.Posicion,
@@ -31,9 +27,8 @@ where
       calc.PrecioASN is not null
   and calc.MonedaOC  =  calc.MonedaASN
   and calc.PrecioOC  <> calc.PrecioASN
-  and calc.PrecioASN =  inf.PrecioInforec
+  and calc.PrecioASN =  calc.PrecioInforec
   and(
-        inf.MonedaInforec = calc.MonedaASN
-     or inf.MonedaInforec is initial
+        calc.MonedaInforec = calc.MonedaASN
+     or calc.MonedaInforec is initial
   )
-  and calc.Estado    <> 'Actualizado automatico'
