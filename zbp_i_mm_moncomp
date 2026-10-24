@@ -1464,7 +1464,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             WITH TABLE KEY iv_purchasingdocument = <fs_moncomp>-oc.
 
         IF sy-subrc IS NOT INITIAL.
-          INSERT VALUE #( iv_purchasingdocument = <fs_moncomp>-oc )
+          INSERT VALUE #( iv_purchasingdocument = <fs_moncomp>-oc
+                          iv_vigencia_asn       = abap_true )
                  INTO TABLE lt_sag ASSIGNING <fs_sag>.
           APPEND VALUE #( oc = <fs_moncomp>-oc ) TO lt_sag_id.
         ENDIF.
