@@ -31,7 +31,11 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
            tt_validity TYPE SORTED TABLE OF bapimeoutvalidity
                        WITH NON-UNIQUE KEY item_no valid_from,
            tt_cond     TYPE SORTED TABLE OF bapimeoutcondition
-                       WITH NON-UNIQUE KEY item_no serial_id cond_type.
+                       WITH NON-UNIQUE KEY item_no serial_id cond_type,
+           tt_cond_std TYPE STANDARD TABLE OF bapimeoutcondition
+                       WITH DEFAULT KEY,
+           tt_condx    TYPE STANDARD TABLE OF bapimeoutconditionx
+                       WITH DEFAULT KEY.
 
     CLASS-METHODS last_day_of_month
       IMPORTING iv_date        TYPE dats
@@ -46,6 +50,10 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
                 iv_item        TYPE ebelp
                 iv_serial_id   TYPE bapimeoutcondition-serial_id
       RETURNING VALUE(rs_cond) TYPE bapimeoutcondition.
+
+    CLASS-METHODS scale_condition_rates
+      CHANGING ct_cond  TYPE tt_cond_std
+               ct_condx TYPE tt_condx.
 
     CLASS-METHODS change_nfm_schedule
       IMPORTING is_param         TYPE ty_param
@@ -116,6 +124,36 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         rs_cond = <fs_cond>.
         RETURN.
       ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD scale_condition_rates.
+    DATA: lv_exact TYPE p LENGTH 16 DECIMALS 6,
+          lv_quot  TYPE p LENGTH 16 DECIMALS 2.
+
+    "PROCESS multiplica COND_VALUE pela quantidade do acordo antes de
+    "dividir por COND_P_UNT. PB00 que ja esta por 1 nao muda.
+    LOOP AT ct_cond ASSIGNING FIELD-SYMBOL(<fs_cond>).
+      IF <fs_cond>-cond_p_unt <= 1.
+        CONTINUE.
+      ENDIF.
+
+      lv_exact = <fs_cond>-cond_value / <fs_cond>-cond_p_unt.
+      lv_quot  = lv_exact.
+      IF lv_quot <> lv_exact.
+        CONTINUE.
+      ENDIF.
+
+      <fs_cond>-cond_value = lv_quot.
+      <fs_cond>-cond_p_unt = 1.
+
+      LOOP AT ct_condx ASSIGNING FIELD-SYMBOL(<fs_condx>)
+           WHERE item_no   = <fs_cond>-item_no
+             AND serial_id = <fs_cond>-serial_id
+             AND ( cond_count = <fs_cond>-cond_count OR cond_count IS INITIAL ).
+        <fs_condx>-cond_value = abap_true.
+        <fs_condx>-cond_p_unt = abap_true.
+      ENDLOOP.
     ENDLOOP.
   ENDMETHOD.
 
@@ -308,6 +346,9 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         ELSE.
           ls_cond-serial_id  = ls_current-serial_id.
           ls_cond-cond_value = <fs_item>-price.
+          IF <fs_item>-price_unit > 0.
+            ls_cond-cond_p_unt = <fs_item>-price_unit.
+          ENDIF.
           IF <fs_item>-currency IS NOT INITIAL.
             ls_cond-currency = <fs_item>-currency.
           ENDIF.
@@ -326,6 +367,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                           serial_id  = ls_cond-serial_id
                           item_nox   = abap_true
                           cond_value = abap_true
+                          cond_p_unt = COND #( WHEN <fs_item>-price_unit > 0 THEN abap_true )
                           currency   = abap_true ) TO lt_condx_ch.
         ENDIF.
       ELSE.
@@ -368,6 +410,9 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           ls_cond-serial_id  = lv_serial.
           ls_cond-cond_count = '01'.
           ls_cond-cond_value = <fs_item>-price.
+          IF <fs_item>-price_unit > 0.
+            ls_cond-cond_p_unt = <fs_item>-price_unit.
+          ENDIF.
           IF <fs_item>-currency IS NOT INITIAL.
             ls_cond-currency = <fs_item>-currency.
           ENDIF.
@@ -386,6 +431,7 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                           item_nox   = abap_true
                           cond_type  = abap_true
                           cond_value = abap_true
+                          cond_p_unt = COND #( WHEN <fs_item>-price_unit > 0 THEN abap_true )
                           currency   = abap_true ) TO lt_condx_new.
         ENDIF.
       ENDIF.
@@ -443,6 +489,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       ENDIF.
 
       IF lt_val_ch IS NOT INITIAL.
+        scale_condition_rates( CHANGING ct_cond  = lt_cond_ch
+                                        ct_condx = lt_condx_ch ).
         CLEAR lt_bapi_ret.
         TRY.
             CALL FUNCTION 'BAPI_SAG_CHANGE'
@@ -489,6 +537,8 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       ENDIF.
 
       CLEAR: lt_bapi_ret, lv_bapi_err.
+      scale_condition_rates( CHANGING ct_cond  = lt_cond_new
+                                      ct_condx = lt_condx_new ).
       TRY.
           CALL FUNCTION 'BAPI_SAG_CHANGE'
             EXPORTING
