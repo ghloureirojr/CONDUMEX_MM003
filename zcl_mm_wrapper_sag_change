@@ -16,7 +16,6 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
            BEGIN OF ty_param,
              iv_purchasingdocument TYPE ebeln,
              iv_nfm                TYPE abap_bool,
-             iv_vigencia_asn       TYPE abap_bool,
              t_item                TYPE tt_item,
            END OF ty_param,
            tt_return TYPE STANDARD TABLE OF bapiret2 WITH DEFAULT KEY.
@@ -156,12 +155,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           ls_cond_old   TYPE bapimeoutcondition,
           lv_bapi_err   TYPE abap_bool,
           lv_why        TYPE string,
-          lv_msgid      TYPE symsgid,
-          lv_msgno      TYPE symsgno,
-          lv_msgv1      TYPE symsgv,
-          lv_msgv2      TYPE symsgv,
-          lv_msgv3      TYPE symsgv,
-          lv_msgv4      TYPE symsgv,
           ls_left       TYPE bapimeoutvalidity,
           lt_bapi_ret   TYPE tt_return,
           lt_item_err   TYPE tt_return,
@@ -205,7 +198,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
       CLEAR: ls_current, ls_new_val, ls_cond, ls_left, lv_next_from, lv_before, lv_serial, lv_after,
              lv_new_from, lv_new_prev, lv_orig_to, lv_price_to, lv_tail_from, lv_chg_to,
              lv_serial_tail, ls_cond_old, lv_why,
-             lv_msgid, lv_msgno, lv_msgv1, lv_msgv2, lv_msgv3, lv_msgv4,
              lv_bapi_err, lt_val_ch, lt_valx_ch, lt_cond_ch, lt_condx_ch, lt_bapi_ret,
              lt_val_new, lt_valx_new, lt_cond_new, lt_condx_new.
       lv_invoice = <fs_item>-invoice_date.
@@ -221,244 +213,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         RETURN.
       ENDIF.
 
-      IF is_param-iv_vigencia_asn = abap_true.
-        lv_prev   = lv_invoice.
-        lv_prev   = lv_prev - 1.
-        lv_serial = |99999{ <fs_item>-item }|.
-
-        LOOP AT lt_val_k INTO ls_new_val USING KEY primary_key.
-          lv_ebelp = ls_new_val-item_no.
-          IF lv_ebelp <> <fs_item>-item.
-            CONTINUE.
-          ENDIF.
-          IF ls_new_val-valid_from > lv_invoice
-             AND ( lv_next_from IS INITIAL OR ls_new_val-valid_from < lv_next_from ).
-            lv_next_from = ls_new_val-valid_from.
-            ls_left      = ls_new_val.
-          ENDIF.
-        ENDLOOP.
-
-        LOOP AT lt_val_k INTO ls_new_val USING KEY primary_key.
-          lv_ebelp = ls_new_val-item_no.
-          IF lv_ebelp <> <fs_item>-item.
-            CONTINUE.
-          ENDIF.
-          IF ls_new_val-valid_from <= lv_invoice AND ls_new_val-valid_to >= lv_invoice.
-            ls_current = ls_new_val.
-            EXIT.
-          ENDIF.
-        ENDLOOP.
-
-        IF ls_current IS NOT INITIAL.
-          ls_cond = get_gross_condition( it_cond      = lt_cond_k
-                                         iv_item      = <fs_item>-item
-                                         iv_serial_id = ls_current-serial_id ).
-          IF ls_cond IS INITIAL.
-            APPEND VALUE #( type       = 'E'
-                            id         = 'ZCL_MSG_MM_003'
-                            number     = '026'
-                            message_v1 = is_param-iv_purchasingdocument
-                            message_v2 = <fs_item>-item
-                            row        = lv_row ) TO lt_item_err.
-            CONTINUE.
-          ENDIF.
-
-          lv_orig_to = ls_current-valid_to.
-
-          IF ls_current-valid_from = lv_invoice.
-            ls_cond-serial_id  = ls_current-serial_id.
-            ls_cond-cond_value = <fs_item>-price.
-            IF <fs_item>-price_unit > 0.
-              ls_cond-cond_p_unt = <fs_item>-price_unit.
-            ENDIF.
-            IF <fs_item>-currency IS NOT INITIAL.
-              ls_cond-currency = <fs_item>-currency.
-            ENDIF.
-            APPEND ls_current TO lt_val_ch.
-            APPEND VALUE #( item_no   = ls_current-item_no
-                            serial_id = ls_current-serial_id
-                            item_nox  = abap_true
-                            valid_to  = abap_false ) TO lt_valx_ch.
-            APPEND ls_cond TO lt_cond_ch.
-            APPEND VALUE #( item_no    = ls_cond-item_no
-                            serial_id  = ls_cond-serial_id
-                            item_nox   = abap_true
-                            cond_value = abap_true
-                            cond_p_unt = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
-                            currency   = abap_true ) TO lt_condx_ch.
-          ELSE.
-            ls_left             = ls_current.
-            ls_current-valid_to = lv_prev.
-            APPEND ls_current TO lt_val_ch.
-            APPEND VALUE #( item_no   = ls_current-item_no
-                            serial_id = ls_current-serial_id
-                            item_nox  = abap_true
-                            valid_to  = abap_true ) TO lt_valx_ch.
-
-            ls_new_val            = ls_left.
-            ls_new_val-serial_id  = lv_serial.
-            ls_new_val-valid_from = lv_invoice.
-            ls_new_val-valid_to   = lv_orig_to.
-            APPEND ls_new_val TO lt_val_new.
-            APPEND VALUE #( item_no    = ls_new_val-item_no
-                            serial_id  = ls_new_val-serial_id
-                            item_nox   = abap_true
-                            valid_from = abap_true
-                            valid_to   = abap_true ) TO lt_valx_new.
-            ls_cond-serial_id  = lv_serial.
-            ls_cond-cond_count = '01'.
-            ls_cond-cond_value = <fs_item>-price.
-            IF <fs_item>-price_unit > 0.
-              ls_cond-cond_p_unt = <fs_item>-price_unit.
-            ENDIF.
-            IF <fs_item>-currency IS NOT INITIAL.
-              ls_cond-currency = <fs_item>-currency.
-            ENDIF.
-            CLEAR: ls_cond-scale_type,
-                   ls_cond-scale_base_ty,
-                   ls_cond-scale_unit,
-                   ls_cond-scale_unit_iso,
-                   ls_cond-scale_curr,
-                   ls_cond-scale_curr_iso,
-                   ls_cond-lowerlimit,
-                   ls_cond-upperlimit.
-            APPEND ls_cond TO lt_cond_new.
-            APPEND VALUE #( item_no    = ls_cond-item_no
-                            serial_id  = ls_cond-serial_id
-                            cond_count = ls_cond-cond_count
-                            item_nox   = abap_true
-                            cond_type  = abap_true
-                            cond_value = abap_true
-                            cond_p_unt = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
-                            currency   = abap_true ) TO lt_condx_new.
-          ENDIF.
-
-        ELSEIF lv_next_from IS NOT INITIAL.
-          ls_cond = get_gross_condition( it_cond      = lt_cond_k
-                                         iv_item      = <fs_item>-item
-                                         iv_serial_id = ls_left-serial_id ).
-          IF ls_cond IS INITIAL.
-            APPEND VALUE #( type       = 'E'
-                            id         = 'ZCL_MSG_MM_003'
-                            number     = '026'
-                            message_v1 = is_param-iv_purchasingdocument
-                            message_v2 = <fs_item>-item
-                            row        = lv_row ) TO lt_item_err.
-            CONTINUE.
-          ENDIF.
-
-          lv_before = lv_next_from.
-          lv_before = lv_before - 1.
-          ls_new_val            = ls_left.
-          ls_new_val-serial_id  = lv_serial.
-          ls_new_val-valid_from = lv_invoice.
-          ls_new_val-valid_to   = lv_before.
-          APPEND ls_new_val TO lt_val_new.
-          APPEND VALUE #( item_no    = ls_new_val-item_no
-                          serial_id  = ls_new_val-serial_id
-                          item_nox   = abap_true
-                          valid_from = abap_true
-                          valid_to   = abap_true ) TO lt_valx_new.
-          ls_cond-serial_id  = lv_serial.
-          ls_cond-cond_count = '01'.
-          ls_cond-cond_value = <fs_item>-price.
-          IF <fs_item>-price_unit > 0.
-            ls_cond-cond_p_unt = <fs_item>-price_unit.
-          ENDIF.
-          IF <fs_item>-currency IS NOT INITIAL.
-            ls_cond-currency = <fs_item>-currency.
-          ENDIF.
-          CLEAR: ls_cond-scale_type,
-                 ls_cond-scale_base_ty,
-                 ls_cond-scale_unit,
-                 ls_cond-scale_unit_iso,
-                 ls_cond-scale_curr,
-                 ls_cond-scale_curr_iso,
-                 ls_cond-lowerlimit,
-                 ls_cond-upperlimit.
-          APPEND ls_cond TO lt_cond_new.
-          APPEND VALUE #( item_no    = ls_cond-item_no
-                          serial_id  = ls_cond-serial_id
-                          cond_count = ls_cond-cond_count
-                          item_nox   = abap_true
-                          cond_type  = abap_true
-                          cond_value = abap_true
-                          cond_p_unt = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
-                          currency   = abap_true ) TO lt_condx_new.
-
-        ELSE.
-          CLEAR ls_left.
-          LOOP AT lt_val_k INTO ls_new_val USING KEY primary_key.
-            lv_ebelp = ls_new_val-item_no.
-            IF lv_ebelp <> <fs_item>-item.
-              CONTINUE.
-            ENDIF.
-            IF ls_left IS INITIAL OR ls_new_val-valid_from > ls_left-valid_from.
-              ls_left = ls_new_val.
-            ENDIF.
-          ENDLOOP.
-
-          IF ls_left IS INITIAL.
-            APPEND VALUE #( type       = 'E'
-                            id         = 'ZCL_MSG_MM_003'
-                            number     = '027'
-                            message_v1 = is_param-iv_purchasingdocument
-                            message_v2 = <fs_item>-item
-                            row        = lv_row ) TO lt_item_err.
-            CONTINUE.
-          ENDIF.
-
-          ls_cond = get_gross_condition( it_cond      = lt_cond_k
-                                         iv_item      = <fs_item>-item
-                                         iv_serial_id = ls_left-serial_id ).
-          IF ls_cond IS INITIAL.
-            APPEND VALUE #( type       = 'E'
-                            id         = 'ZCL_MSG_MM_003'
-                            number     = '026'
-                            message_v1 = is_param-iv_purchasingdocument
-                            message_v2 = <fs_item>-item
-                            row        = lv_row ) TO lt_item_err.
-            CONTINUE.
-          ENDIF.
-
-          ls_new_val            = ls_left.
-          ls_new_val-serial_id  = lv_serial.
-          ls_new_val-valid_from = lv_invoice.
-          ls_new_val-valid_to   = '99991231'.
-          APPEND ls_new_val TO lt_val_new.
-          APPEND VALUE #( item_no    = ls_new_val-item_no
-                          serial_id  = ls_new_val-serial_id
-                          item_nox   = abap_true
-                          valid_from = abap_true
-                          valid_to   = abap_true ) TO lt_valx_new.
-          ls_cond-serial_id  = lv_serial.
-          ls_cond-cond_count = '01'.
-          ls_cond-cond_value = <fs_item>-price.
-          IF <fs_item>-price_unit > 0.
-            ls_cond-cond_p_unt = <fs_item>-price_unit.
-          ENDIF.
-          IF <fs_item>-currency IS NOT INITIAL.
-            ls_cond-currency = <fs_item>-currency.
-          ENDIF.
-          CLEAR: ls_cond-scale_type,
-                 ls_cond-scale_base_ty,
-                 ls_cond-scale_unit,
-                 ls_cond-scale_unit_iso,
-                 ls_cond-scale_curr,
-                 ls_cond-scale_curr_iso,
-                 ls_cond-lowerlimit,
-                 ls_cond-upperlimit.
-          APPEND ls_cond TO lt_cond_new.
-          APPEND VALUE #( item_no    = ls_cond-item_no
-                          serial_id  = ls_cond-serial_id
-                          cond_count = ls_cond-cond_count
-                          item_nox   = abap_true
-                          cond_type  = abap_true
-                          cond_value = abap_true
-                          cond_p_unt = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
-                          currency   = abap_true ) TO lt_condx_new.
-        ENDIF.
-      ELSE.
       lv_prev     = lv_invoice.
       lv_prev     = lv_prev - 1.
       lv_valid_to = last_day_of_month( lv_invoice ).
@@ -546,25 +300,13 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         lv_price_to = lv_valid_to.
 
         IF lv_price_to < ls_current-valid_from.
-          MESSAGE e041(zcl_msg_mm_003)
-            WITH <fs_item>-item
-                 |{ lv_price_to+6(2) }.{ lv_price_to+4(2) }.{ lv_price_to(4) }|
-                 |{ ls_current-valid_from+6(2) }.{ ls_current-valid_from+4(2) }.{ ls_current-valid_from(4) }|
-                 ``
-            INTO lv_why.
-          lv_msgid = sy-msgid.
-          lv_msgno = sy-msgno.
-          lv_msgv1 = sy-msgv1.
-          lv_msgv2 = sy-msgv2.
-          lv_msgv3 = sy-msgv3.
-          lv_msgv4 = sy-msgv4.
+          lv_why = |Posición { <fs_item>-item }: el fin calculado del periodo (| &&
+                   |{ lv_price_to+6(2) }.{ lv_price_to+4(2) }.{ lv_price_to(4) }) queda antes del inicio vigente (| &&
+                   |{ ls_current-valid_from+6(2) }.{ ls_current-valid_from+4(2) }.{ ls_current-valid_from(4) }).|.
           CLEAR: lt_val_ch, lt_val_new.
         ELSE.
           ls_cond-serial_id  = ls_current-serial_id.
           ls_cond-cond_value = <fs_item>-price.
-          IF <fs_item>-price_unit > 0.
-            ls_cond-cond_p_unt = <fs_item>-price_unit.
-          ENDIF.
           IF <fs_item>-currency IS NOT INITIAL.
             ls_cond-currency = <fs_item>-currency.
           ENDIF.
@@ -583,7 +325,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                           serial_id  = ls_cond-serial_id
                           item_nox   = abap_true
                           cond_value = abap_true
-                          cond_p_unt = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
                           currency   = abap_true ) TO lt_condx_ch.
         ENDIF.
       ELSE.
@@ -596,18 +337,11 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
         lv_new_prev = lv_new_prev - 1.
 
         IF lv_new_from > lv_valid_to.
-          MESSAGE e040(zcl_msg_mm_003)
-            WITH <fs_item>-item
-                 |{ ls_current-valid_from+6(2) }.{ ls_current-valid_from+4(2) }.{ ls_current-valid_from(4) }|
-                 |{ lv_invoice+6(2) }.{ lv_invoice+4(2) }.{ lv_invoice(4) }|
-                 |{ sy-datum+6(2) }.{ sy-datum+4(2) }.{ sy-datum(4) } (fin { lv_valid_to+6(2) }.{ lv_valid_to+4(2) }.{ lv_valid_to(4) })|
-            INTO lv_why.
-          lv_msgid = sy-msgid.
-          lv_msgno = sy-msgno.
-          lv_msgv1 = sy-msgv1.
-          lv_msgv2 = sy-msgv2.
-          lv_msgv3 = sy-msgv3.
-          lv_msgv4 = sy-msgv4.
+          lv_why = |Posición { <fs_item>-item }: el periodo vigente empieza el | &&
+                   |{ ls_current-valid_from+6(2) }.{ ls_current-valid_from+4(2) }.{ ls_current-valid_from(4) }, antes de la factura | &&
+                   |{ lv_invoice+6(2) }.{ lv_invoice+4(2) }.{ lv_invoice(4) }. El inicio nuevo no puede ser anterior a hoy (| &&
+                   |{ sy-datum+6(2) }.{ sy-datum+4(2) }.{ sy-datum(4) }) y queda después del fin permitido (| &&
+                   |{ lv_valid_to+6(2) }.{ lv_valid_to+4(2) }.{ lv_valid_to(4) }).|.
           CLEAR: lt_val_ch, lt_val_new.
         ELSE.
           IF ls_current-valid_from < lv_new_from AND ls_current-valid_to >= lv_new_from.
@@ -633,9 +367,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
           ls_cond-serial_id  = lv_serial.
           ls_cond-cond_count = '01'.
           ls_cond-cond_value = <fs_item>-price.
-          IF <fs_item>-price_unit > 0.
-            ls_cond-cond_p_unt = <fs_item>-price_unit.
-          ENDIF.
           IF <fs_item>-currency IS NOT INITIAL.
             ls_cond-currency = <fs_item>-currency.
           ENDIF.
@@ -654,7 +385,6 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                           item_nox   = abap_true
                           cond_type  = abap_true
                           cond_value = abap_true
-                          cond_p_unt = COND bapiupdate( WHEN <fs_item>-price_unit > 0 THEN abap_true ELSE abap_false )
                           currency   = abap_true ) TO lt_condx_new.
         ENDIF.
       ENDIF.
@@ -697,31 +427,16 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
                         currency   = abap_true ) TO lt_condx_new.
       ENDIF.
 
-      ENDIF.
-
       IF lt_val_ch IS INITIAL AND lt_val_new IS INITIAL.
-        IF lv_msgno IS INITIAL.
-          MESSAGE e016(zcl_msg_mm_003)
-            WITH is_param-iv_purchasingdocument
-                 <fs_item>-item
-                 ``
-                 ``
-            INTO lv_why.
-          lv_msgid = sy-msgid.
-          lv_msgno = sy-msgno.
-          lv_msgv1 = sy-msgv1.
-          lv_msgv2 = sy-msgv2.
-          lv_msgv3 = sy-msgv3.
-          lv_msgv4 = sy-msgv4.
+        IF lv_why IS INITIAL.
+          lv_why = |No se creó el periodo de precio de la posición { <fs_item>-item }.|.
         ENDIF.
         APPEND VALUE #( type       = 'E'
-                        id         = lv_msgid
-                        number     = lv_msgno
+                        id         = 'ZCL_MSG_MM_003'
+                        number     = '016'
                         message    = lv_why
-                        message_v1 = lv_msgv1
-                        message_v2 = lv_msgv2
-                        message_v3 = lv_msgv3
-                        message_v4 = lv_msgv4
+                        message_v1 = is_param-iv_purchasingdocument
+                        message_v2 = <fs_item>-item
                         row        = lv_row ) TO lt_item_err.
         CONTINUE.
       ENDIF.
