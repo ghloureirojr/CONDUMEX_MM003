@@ -16,6 +16,7 @@ CLASS zcl_mm_wrapper_sag_change DEFINITION
            BEGIN OF ty_param,
              iv_purchasingdocument TYPE ebeln,
              iv_nfm                TYPE abap_bool,
+             iv_vigencia_asn       TYPE abap_bool,
              t_item                TYPE tt_item,
            END OF ty_param,
            tt_return TYPE STANDARD TABLE OF bapiret2 WITH DEFAULT KEY.
