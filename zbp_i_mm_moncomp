@@ -31,6 +31,23 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
                            WITH UNIQUE KEY iv_purchasingdocument.
     CLASS-DATA gt_sag_id TYPE STANDARD TABLE OF ty_id
                            WITH UNIQUE HASHED KEY id COMPONENTS oc.
+
+    CLASS-METHODS bapi_text
+      IMPORTING is_ret         TYPE bapiret2
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS lcl_buffer IMPLEMENTATION.
+  METHOD bapi_text.
+    DATA(lv_full) = |{ is_ret-message_v1 }{ is_ret-message_v2 }{ is_ret-message_v3 }{ is_ret-message_v4 }|.
+    rv_text = is_ret-message.
+    IF rv_text IS INITIAL.
+      rv_text = condense( |{ is_ret-id }/{ is_ret-number } { lv_full }| ).
+    ELSEIF is_ret-message_v2 IS NOT INITIAL
+       AND ( rv_text = is_ret-message_v1 OR strlen( lv_full ) > strlen( rv_text ) ).
+      rv_text = lv_full.
+    ENDIF.
+  ENDMETHOD.
 ENDCLASS.
 
 CLASS lcl_xlsx_cell DEFINITION.
@@ -1629,10 +1646,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
               CLEAR lv_err_txt.
               LOOP AT <fs_result>-bapiret ASSIGNING <fs_br>.
                 IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
-                  lv_err_txt = <fs_br>-message.
-                  IF lv_err_txt IS INITIAL.
-                    lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 } { <fs_br>-message_v2 }|.
-                  ENDIF.
+                  lv_err_txt = lcl_buffer=>bapi_text( <fs_br> ).
                   EXIT.
                 ENDIF.
               ENDLOOP.
@@ -1781,10 +1795,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 ENDIF.
                 IF lv_pos_err = abap_false.
                   lv_pos_err = abap_true.
-                  lv_err_txt = <fs_br>-message.
-                  IF lv_err_txt IS INITIAL.
-                    lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
-                  ENDIF.
+                  lv_err_txt = lcl_buffer=>bapi_text( <fs_br> ).
                 ENDIF.
               ELSEIF <fs_br>-type = 'S' AND <fs_br>-row = lv_row.
                 lv_has_s = abap_true.
@@ -2230,10 +2241,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         IF <fs_result> IS ASSIGNED.
           LOOP AT <fs_result>-bapiret ASSIGNING <fs_br>.
             IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
-              lv_err_txt = <fs_br>-message.
-              IF lv_err_txt IS INITIAL.
-                lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 } { <fs_br>-message_v2 }|.
-              ENDIF.
+              lv_err_txt = lcl_buffer=>bapi_text( <fs_br> ).
               EXIT.
             ENDIF.
           ENDLOOP.
@@ -2322,10 +2330,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                 ENDIF.
                 IF lv_pos_err = abap_false.
                   lv_pos_err = abap_true.
-                  lv_err_txt = <fs_br>-message.
-                  IF lv_err_txt IS INITIAL.
-                    lv_err_txt = |{ <fs_br>-id }/{ <fs_br>-number } { <fs_br>-message_v1 }|.
-                  ENDIF.
+                  lv_err_txt = lcl_buffer=>bapi_text( <fs_br> ).
                 ENDIF.
               ELSEIF <fs_br>-type = 'S' AND <fs_br>-row = lv_row.
                 lv_has_s = abap_true.
