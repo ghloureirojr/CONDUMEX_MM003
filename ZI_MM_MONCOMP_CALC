@@ -213,7 +213,6 @@ define view entity ZI_MM_MONCOMP_CALC
                       'INITIAL' )    as FechaAprobacion,
       log.nota                       as Nota,
       zasn.DocumentDate              as FechaFactura,
-      zasn.CantidadFactura           as CantidadFactura,
       cast( zasn.PrecioUnitarioVigente as abap.dec(16,5) ) as PrecioUnitarioVigente,
       nfmp.OrderPriceUnit            as UnidadPrecio,
       pos.PurchaseOrderQuantityUnit  as UnidadBase,
