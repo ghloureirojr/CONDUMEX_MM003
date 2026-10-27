@@ -212,9 +212,4 @@ annotate entity ZC_MM_MONCOMP with
   @UI.lineItem: [ { position: 300 } ]
   @UI.identification: [ { position: 300 } ]
   FacturaRemision;
-
-  @EndUserText.label: 'Cantidad factura'
-  @UI.lineItem: [ { position: 310 } ]
-  @UI.identification: [ { position: 310 } ]
-  CantidadFactura;
 }
