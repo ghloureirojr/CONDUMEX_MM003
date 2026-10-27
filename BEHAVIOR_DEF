@@ -15,5 +15,10 @@ authorization master ( instance )
   action ( features : instance ) authPrecioASN;
   action authDiscre parameter ZAE_MM_AUTH_DISCREPANCIA;
 
+  side effects {
+    action authPrecioASN affects $self;
+    action authDiscre affects $self;
+  }
+
   field ( readonly ) OC, Posicion, DeliveryDocument, FacturaRemision;
 }
