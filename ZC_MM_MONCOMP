@@ -45,7 +45,6 @@ define root view entity ZC_MM_MONCOMP
       FechaAprobacion,
       Nota,
       FechaFactura,
-      CantidadFactura,
       PrecioUnitarioVigente,
       UnidadPrecio,
       UnidadBase,
