@@ -44,7 +44,6 @@ define root view entity ZI_MM_MONCOMP
       calc.FechaAprobacion,
       calc.Nota,
       calc.FechaFactura,
-      calc.CantidadFactura,
       calc.PrecioUnitarioVigente,
       calc.UnidadPrecio,
       calc.UnidadBase,
