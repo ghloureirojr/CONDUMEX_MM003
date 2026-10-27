@@ -1339,7 +1339,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           lv_row        TYPE bapiret2-row,
           lv_bapi_msg   TYPE abap_bool,
           lv_sag_msg    TYPE abap_bool,
-          lv_err_txt    TYPE string,
           lt_in         TYPE cl_abap_parallel=>t_in_tab,
           lv_peinh      TYPE epein,
           lv_monto      TYPE bapicurext.
@@ -1643,14 +1642,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             IF line_exists( <fs_result>-bapiret[ type = 'E' ] )
             OR line_exists( <fs_result>-bapiret[ type = 'A' ] )
             OR NOT line_exists( <fs_result>-bapiret[ type = 'S' ] ).
-              CLEAR lv_err_txt.
-              LOOP AT <fs_result>-bapiret ASSIGNING <fs_br>.
-                IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
-                  lv_err_txt = lcl_buffer=>bapi_text( <fs_br> ).
-                  EXIT.
-                ENDIF.
-              ENDLOOP.
-
               LOOP AT <fs_id>-t_pos ASSIGNING <fs_pos>.
                 GET TIME STAMP FIELD lv_timestamp.
 
@@ -1661,7 +1652,46 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                 usuario    = cl_abap_context_info=>get_user_technical_name( )
                                 fecha_hora = lv_timestamp ) TO lcl_buffer=>gt_log.
 
-                IF lv_err_txt IS INITIAL.
+                CLEAR lv_pos_err.
+                LOOP AT <fs_result>-bapiret ASSIGNING <fs_br>.
+                  IF NOT ( <fs_br>-type = 'E' OR <fs_br>-type = 'A'
+                        OR <fs_br>-type = 'W' OR <fs_br>-type = 'I' ).
+                    CONTINUE.
+                  ENDIF.
+
+                  IF <fs_br>-id IS NOT INITIAL AND <fs_br>-number IS NOT INITIAL.
+                    reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                             %tky = keys[ KEY id %key-oc               = <fs_result>-oc
+                                                                                 %key-Posicion         = <fs_pos>-posicion
+                                                                                 %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                                 %key-FacturaRemision  = <fs_pos>-factura ]-%tky
+                                                             %msg = new_message( id       = <fs_br>-id
+                                                                                 number   = <fs_br>-number
+                                                                                 v1       = <fs_br>-message_v1
+                                                                                 v2       = <fs_br>-message_v2
+                                                                                 v3       = <fs_br>-message_v3
+                                                                                 v4       = <fs_br>-message_v4
+                                                                                 severity = SWITCH #( <fs_br>-type
+                                                                                                      WHEN 'W' THEN if_abap_behv_message=>severity-warning
+                                                                                                      WHEN 'I' THEN if_abap_behv_message=>severity-information
+                                                                                                      ELSE if_abap_behv_message=>severity-error ) ) ) ).
+                  ELSE.
+                    reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                             %tky = keys[ KEY id %key-oc               = <fs_result>-oc
+                                                                                 %key-Posicion         = <fs_pos>-posicion
+                                                                                 %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                                 %key-FacturaRemision  = <fs_pos>-factura ]-%tky
+                                                             %msg = new_message_with_text(
+                                                                      severity = SWITCH #( <fs_br>-type
+                                                                                           WHEN 'W' THEN if_abap_behv_message=>severity-warning
+                                                                                           WHEN 'I' THEN if_abap_behv_message=>severity-information
+                                                                                           ELSE if_abap_behv_message=>severity-error )
+                                                                      text     = lcl_buffer=>bapi_text( <fs_br> ) ) ) ).
+                  ENDIF.
+                  lv_pos_err = abap_true.
+                ENDLOOP.
+
+                IF lv_pos_err = abap_false.
                   reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                            %tky = keys[ KEY id %key-oc               = <fs_result>-oc
                                                                                %key-Posicion         = <fs_pos>-posicion
@@ -1672,15 +1702,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                                                                v1       = <fs_result>-oc
                                                                                v2       = <fs_pos>-posicion
                                                                                severity = if_abap_behv_message=>severity-error ) ) ).
-                ELSE.
-                  reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                           %tky = keys[ KEY id %key-oc               = <fs_result>-oc
-                                                                               %key-Posicion         = <fs_pos>-posicion
-                                                                               %key-DeliveryDocument = <fs_pos>-vbeln
-                                                                               %key-FacturaRemision  = <fs_pos>-factura ]-%tky
-                                                           %msg = new_message_with_text(
-                                                                    severity = if_abap_behv_message=>severity-error
-                                                                    text     = lv_err_txt ) ) ).
                 ENDIF.
 
                 failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
@@ -1786,17 +1807,14 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
             GET TIME STAMP FIELD lv_timestamp.
 
             lv_row = <fs_pos>-posicion.
-            CLEAR: lv_err_txt, lv_pos_err, lv_has_s.
+            CLEAR: lv_pos_err, lv_has_s.
 
             LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>.
               IF <fs_br>-type = 'E' OR <fs_br>-type = 'A'.
                 IF <fs_br>-row IS NOT INITIAL AND <fs_br>-row <> lv_row.
                   CONTINUE.
                 ENDIF.
-                IF lv_pos_err = abap_false.
-                  lv_pos_err = abap_true.
-                  lv_err_txt = lcl_buffer=>bapi_text( <fs_br> ).
-                ENDIF.
+                lv_pos_err = abap_true.
               ELSEIF <fs_br>-type = 'S' AND <fs_br>-row = lv_row.
                 lv_has_s = abap_true.
               ENDIF.
@@ -1829,7 +1847,49 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                                                            v2       = <fs_pos>-posicion
                                                                            severity = if_abap_behv_message=>severity-success ) ) ).
             ELSE.
-              IF lv_err_txt IS INITIAL.
+              CLEAR lv_pos_err.
+              LOOP AT <fs_sag_res>-bapiret ASSIGNING <fs_br>.
+                IF NOT ( <fs_br>-type = 'E' OR <fs_br>-type = 'A'
+                      OR <fs_br>-type = 'W' OR <fs_br>-type = 'I' ).
+                  CONTINUE.
+                ENDIF.
+                IF <fs_br>-row IS NOT INITIAL AND <fs_br>-row <> lv_row.
+                  CONTINUE.
+                ENDIF.
+
+                IF <fs_br>-id IS NOT INITIAL AND <fs_br>-number IS NOT INITIAL.
+                  reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                           %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
+                                                                               %key-Posicion         = <fs_pos>-posicion
+                                                                               %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                               %key-FacturaRemision  = <fs_pos>-factura ]-%tky
+                                                           %msg = new_message( id       = <fs_br>-id
+                                                                               number   = <fs_br>-number
+                                                                               v1       = <fs_br>-message_v1
+                                                                               v2       = <fs_br>-message_v2
+                                                                               v3       = <fs_br>-message_v3
+                                                                               v4       = <fs_br>-message_v4
+                                                                               severity = SWITCH #( <fs_br>-type
+                                                                                                    WHEN 'W' THEN if_abap_behv_message=>severity-warning
+                                                                                                    WHEN 'I' THEN if_abap_behv_message=>severity-information
+                                                                                                    ELSE if_abap_behv_message=>severity-error ) ) ) ).
+                ELSE.
+                  reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                           %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
+                                                                               %key-Posicion         = <fs_pos>-posicion
+                                                                               %key-DeliveryDocument = <fs_pos>-vbeln
+                                                                               %key-FacturaRemision  = <fs_pos>-factura ]-%tky
+                                                           %msg = new_message_with_text(
+                                                                    severity = SWITCH #( <fs_br>-type
+                                                                                         WHEN 'W' THEN if_abap_behv_message=>severity-warning
+                                                                                         WHEN 'I' THEN if_abap_behv_message=>severity-information
+                                                                                         ELSE if_abap_behv_message=>severity-error )
+                                                                    text     = lcl_buffer=>bapi_text( <fs_br> ) ) ) ).
+                ENDIF.
+                lv_pos_err = abap_true.
+              ENDLOOP.
+
+              IF lv_pos_err = abap_false.
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
                                                                              %key-Posicion         = <fs_pos>-posicion
@@ -1840,15 +1900,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                                                              v1       = <fs_sag_res>-oc
                                                                              v2       = <fs_pos>-posicion
                                                                              severity = if_abap_behv_message=>severity-error ) ) ).
-              ELSE.
-                reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                         %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
-                                                                             %key-Posicion         = <fs_pos>-posicion
-                                                                             %key-DeliveryDocument = <fs_pos>-vbeln
-                                                                             %key-FacturaRemision  = <fs_pos>-factura ]-%tky
-                                                         %msg = new_message_with_text(
-                                                                  severity = if_abap_behv_message=>severity-error
-                                                                  text     = lv_err_txt ) ) ).
               ENDIF.
 
               failed-zi_mm_moncomp = VALUE #( BASE failed-zi_mm_moncomp (
