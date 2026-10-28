@@ -1487,12 +1487,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
         ENDIF.
 
         CLEAR: lv_peinh, lv_monto.
-        lv_peinh = <fs_moncomp>-Cantidad.
-        IF lv_peinh > 0.
-          lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh dec = 2 ).
-        ELSE.
-          lv_monto = <fs_moncomp>-PrecioASN.
-        ENDIF.
+        lv_peinh = 1000.
+        lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh dec = 2 ).
 
         INSERT VALUE #( item         = <fs_moncomp>-Posicion
                         price        = lv_monto
@@ -1560,12 +1556,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                         monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
 
         CLEAR: lv_peinh, lv_monto.
-        lv_peinh = <fs_moncomp>-Cantidad.
-        IF lv_peinh > 0.
-          lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh dec = 2 ).
-        ELSE.
-          lv_monto = <fs_moncomp>-PrecioASN.
-        ENDIF.
+        lv_peinh = 1000.
+        lv_monto = round( val = CONV decfloat34( <fs_moncomp>-PrecioASN ) * lv_peinh dec = 2 ).
 
         APPEND VALUE #( po_item    = <fs_moncomp>-Posicion
                         net_price  = lv_monto
@@ -2129,12 +2121,8 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
       ENDIF.
 
       CLEAR: lv_peinh, lv_monto.
-      lv_peinh = ls_first-Cantidad.
-      IF lv_peinh > 0.
-        lv_monto = round( val = CONV decfloat34( ls_first-PrecioASN ) * lv_peinh dec = 2 ).
-      ELSE.
-        lv_monto = ls_first-PrecioASN.
-      ENDIF.
+      lv_peinh = 1000.
+      lv_monto = round( val = CONV decfloat34( ls_first-PrecioASN ) * lv_peinh dec = 2 ).
 
       IF ls_first-TipoDocumento = 'L'.
         IF lv_fecha IS INITIAL.
