@@ -85,8 +85,9 @@ CLASS zcl_mm_wrapper_sag_change IMPLEMENTATION.
     "PB00 tipo C: o pricing multiplica COND_VALUE pela quantidade do acordo
     "antes de dividir por COND_P_UNT. 1919000 x 3400000 estoura.
     "O preco unitario (valor / unidade de preco) cabe; a base grande nao.
+    "Por 1000 = preco com 5 decimais (regra MM003): valor e unidade ja vem prontos.
     LOOP AT ct_cond ASSIGNING FIELD-SYMBOL(<fs_cond>).
-      IF <fs_cond>-cond_value IS INITIAL OR <fs_cond>-cond_p_unt <= 1.
+      IF <fs_cond>-cond_value IS INITIAL OR <fs_cond>-cond_p_unt <= 1 OR <fs_cond>-cond_p_unt = 1000.
         CONTINUE.
       ENDIF.
 
