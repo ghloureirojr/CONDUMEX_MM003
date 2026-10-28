@@ -16,7 +16,6 @@ authorization master ( instance )
   action authDiscre parameter ZAE_MM_AUTH_DISCREPANCIA;
 
   side effects {
-    action authPrecioASN affects $self;
     action authDiscre affects $self;
   }
 
