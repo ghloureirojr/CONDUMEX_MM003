@@ -1461,21 +1461,6 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           CONTINUE.
         ENDIF.
 
-        IF <fs_moncomp>-FechaFactura IS INITIAL.
-          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
-                                                   %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
-                                                                       %key-Posicion         = <fs_moncomp>-Posicion
-                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
-                                                                       %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
-                                                   %msg = new_message( id       = 'ZCL_MSG_MM_003'
-                                                                       number   = 030
-                                                                       v1       = <fs_moncomp>-oc
-                                                                       v2       = <fs_moncomp>-Posicion
-                                                                       severity = if_abap_behv_message=>severity-error ) ) ).
-          CLEAR lv_timestamp.
-          CONTINUE.
-        ENDIF.
-
         READ TABLE lt_sag ASSIGNING FIELD-SYMBOL(<fs_sag>)
             WITH TABLE KEY iv_purchasingdocument = <fs_moncomp>-oc.
 
