@@ -1,0 +1,156 @@
+ENHANCEMENT 1  ZMM_SA_NFM.    "active version
+
+* Insertar Registro NFM para Planes de Entrega con Materiales NFM
+TYPES: BEGIN OF ty_oicqp,
+          quotdate TYPE oicqp-quotdate,
+          price    TYPE oicqp-price,
+       END OF ty_oicqp,
+
+       BEGIN OF ty_tvgw,
+         nes TYPE /nfm/tvgw-nes,
+         vgw TYPE /nfm/tvgw-vgw,
+         vge TYPE /nfm/tvgw-vge,
+         neb TYPE /nfm/tvgw-neb,
+       END OF ty_tvgw.
+
+DATA: lt_nfm    TYPE STANDARD TABLE OF /nfm/torderpos,
+      lt_oicqp  TYPE STANDARD TABLE OF ty_oicqp,
+      lt_tvgw   TYPE STANDARD TABLE OF ty_tvgw,
+      ls_nfm    TYPE /nfm/torderpos,
+      ls_tvgw   TYPE ty_tvgw,
+      ls_oicqp  TYPE ty_oicqp,
+      lv_vky    TYPE /nfm/tdefault-vky,
+      lv_quotyp TYPE oicqp-quotyp,
+      lv_quotno TYPE oicqp-quotno,
+      lv_lme    TYPE lfm1-j_1nboesl.
+
+*  Constantes
+   ls_nfm-fsp  ='00'.
+   ls_nfm-kpt  = 'X'.
+   ls_nfm-eing = 'X'.
+   ls_nfm-kgfe = 'X'.
+   ls_nfm-bwe  = '1.00'.
+   ls_nfm-ndt  = sy-datum.
+
+     SELECT SINGLE j_1nboesl INTO lv_lme
+        FROM lfm1
+        WHERE lifnr EQ nekko-lifnr
+        AND   ekorg EQ nekko-ekorg.
+
+      LOOP AT xekpo INTO DATA(ls_ekpo).
+         ls_nfm-blt     = 'B'.
+         ls_nfm-belnr   = ls_ekpo-ebeln.
+         ls_nfm-posnr   = ls_ekpo-ebelp.
+         ls_nfm-bukrs   = nekko-bukrs.
+         ls_nfm-bsl     = lv_lme.
+*         ls_nfm-gjahr = nekko-bedat(4).
+
+         CONCATENATE nekko-ekorg nekko-lifnr ls_ekpo-matnr
+                INTO lv_vky RESPECTING BLANKS.
+
+         SELECT bcu nfs
+            INTO (ls_nfm-bcu, ls_nfm-nfs)
+            UP TO 1 ROWS
+            FROM /nfm/tdefault
+            WHERE vtp EQ 'EA'
+            AND   vky EQ lv_vky.
+         ENDSELECT.
+         IF sy-subrc EQ 0.
+            ls_nfm-vtp_nfs = 'EA'.
+            ls_nfm-vtp_neb = 'EA'.
+         ELSE.
+            CONCATENATE nekko-ekorg ls_ekpo-matnr
+                   INTO lv_vky.
+
+            SELECT bcu nfs
+               INTO (ls_nfm-bcu, ls_nfm-nfs)
+               UP TO 1 ROWS
+               FROM /nfm/tdefault
+               WHERE vtp EQ 'EC'
+               AND   vky EQ lv_vky.
+            ENDSELECT.
+
+            ls_nfm-vtp_nfs = 'EC'.
+            ls_nfm-vtp_neb = 'EC'.
+
+         ENDIF.
+
+         ls_nfm-bkw = ls_nfm-nkw = ls_nfm-bcu.
+
+*        PENDING
+         CASE ls_nfm-nfs.
+            WHEN '01'. CONCATENATE 'T1' lv_lme INTO lv_quotyp.
+            WHEN '04'. CONCATENATE 'M1' lv_lme INTO lv_quotyp.
+                       ls_nfm-nmo = ls_nfm-ndt(6).
+         ENDCASE.
+
+         ls_nfm-bks = ls_nfm-nks = ls_nfm-kursk = nekko-wkurs.
+
+         REFRESH lt_tvgw.
+
+         SELECT nes vgw vge
+            INTO TABLE lt_tvgw
+            FROM /nfm/tvgw
+            WHERE parnr EQ ekko-lifnr
+            AND   matnr EQ ls_ekpo-matnr
+            AND   kappl EQ 'M'
+            AND   org   EQ ekko-ekorg.
+         IF sy-subrc NE 0.
+            SELECT nes vgw vge
+               INTO TABLE lt_tvgw
+               FROM /nfm/tvgw
+               WHERE matnr EQ ls_ekpo-matnr
+               AND   kappl EQ 'M'
+               AND   werks EQ ls_ekpo-werks.
+         ENDIF.
+*         SELECT nes vgw vge neb
+*            INTO TABLE lt_tvgw
+*            FROM  /nfm/tvgw
+*            WHERE matnr EQ ls_ekpo-matnr
+*            AND   kappl EQ 'M'
+*            AND   werks EQ ls_ekpo-werks.
+
+         LOOP AT lt_tvgw INTO ls_tvgw.
+            ls_nfm-neb = ls_tvgw-neb.
+            ls_nfm-vgw = ls_tvgw-vgw.
+            ls_nfm-vge = ls_tvgw-vge.
+            ls_nfm-nes = ls_tvgw-nes.
+
+            CONCATENATE ls_tvgw-nes 'M' nekko-ekorg ls_nfm-bcu INTO lv_quotno.
+
+            SELECT SINGLE bmg bme
+               INTO (ls_nfm-bmg, ls_nfm-bme)
+               FROM /nfm/tnes
+               WHERE nes = ls_tvgw-nes.
+
+            SELECT quotdate price
+               INTO TABLE lt_oicqp
+               FROM oicqp
+               WHERE quosrc EQ 'NF'
+               AND   quotyp EQ lv_quotyp
+               AND   quotno EQ lv_quotno.
+
+            SORT lt_oicqp  BY quotdate DESCENDING.
+
+            LOOP AT lt_oicqp INTO ls_oicqp.
+               IF ls_oicqp-quotdate LE nekko-bedat.
+                  IF ls_nfm-nfs EQ '01'.
+                     ls_nfm-kta = ls_oicqp-quotdate.
+                  ENDIF.
+                  ls_nfm-nku = ls_oicqp-price.
+                  EXIT.
+               ENDIF.
+            ENDLOOP.
+
+            ls_nfm-nno = ls_nfm-nkn = ls_nfm-nku.
+
+            APPEND ls_nfm TO lt_nfm.
+         ENDLOOP.
+
+      ENDLOOP.
+
+      IF NOT lt_nfm[] IS INITIAL.
+         MODIFY /nfm/torderpos FROM TABLE lt_nfm.
+      ENDIF.
+
+ENDENHANCEMENT.
