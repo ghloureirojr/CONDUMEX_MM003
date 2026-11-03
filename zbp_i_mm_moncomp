@@ -25,12 +25,32 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
              t_pos TYPE STANDARD TABLE OF ty_posicion WITH DEFAULT KEY,
            END OF ty_id.
 
+    TYPES: BEGIN OF ty_nfm,
+             blt      TYPE /nfm/torderpos-blt,
+             belnr    TYPE /nfm/torderpos-belnr,
+             posnr    TYPE /nfm/torderpos-posnr,
+             bukrs    TYPE /nfm/torderpos-bukrs,
+             gjahr    TYPE /nfm/torderpos-gjahr,
+             nes      TYPE /nfm/torderpos-nes,
+             kta      TYPE /nfm/torderpos-kta,
+             ndt      TYPE /nfm/torderpos-ndt,
+             nmo      TYPE /nfm/torderpos-nmo,
+             nku      TYPE /nfm/torderpos-nku,
+             nno      TYPE /nfm/torderpos-nno,
+             nkn      TYPE /nfm/torderpos-nkn,
+             upd_kta  TYPE abap_bool,
+             upd_nmo  TYPE abap_bool,
+             oc       TYPE vdm_purchaseorder,
+             posicion TYPE vdm_purchaseorderitem,
+           END OF ty_nfm.
+
     CLASS-DATA gt_log    TYPE STANDARD TABLE OF zmm_moncomp_log.
     CLASS-DATA gv_failed_action TYPE c LENGTH 10.
     CLASS-DATA gt_sag    TYPE HASHED TABLE OF zcl_mm_wrapper_sag_change=>ty_param
                            WITH UNIQUE KEY iv_purchasingdocument.
     CLASS-DATA gt_sag_id TYPE STANDARD TABLE OF ty_id
                            WITH UNIQUE HASHED KEY id COMPONENTS oc.
+    CLASS-DATA gt_nfm    TYPE STANDARD TABLE OF ty_nfm WITH EMPTY KEY.
 
     CLASS-METHODS bapi_text
       IMPORTING is_ret         TYPE bapiret2
@@ -1351,7 +1371,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
     CONSTANTS lc_msg_dup TYPE string VALUE 'Una misma posición de un documento de compra no puede modificarse más que una vez a la vez, modifique el precio una vez concluya el ciclo y si es necesario entre de nuevo a la app'.
 
-    CLEAR: lcl_buffer=>gt_sag, lcl_buffer=>gt_sag_id.
+    CLEAR: lcl_buffer=>gt_sag, lcl_buffer=>gt_sag_id, lcl_buffer=>gt_nfm.
 
     READ ENTITIES OF zi_mm_moncomp IN LOCAL MODE
       ENTITY zi_mm_moncomp
@@ -1368,6 +1388,39 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
     DATA: lt_pos_cnt TYPE SORTED TABLE OF ty_pos_cnt WITH UNIQUE KEY oc posicion,
           lt_dup     TYPE SORTED TABLE OF ty_pos_cnt WITH UNIQUE KEY oc posicion.
+
+    TYPES: BEGIN OF ty_nfm_db,
+             blt   TYPE /nfm/torderpos-blt,
+             belnr TYPE /nfm/torderpos-belnr,
+             posnr TYPE /nfm/torderpos-posnr,
+             bukrs TYPE /nfm/torderpos-bukrs,
+             gjahr TYPE /nfm/torderpos-gjahr,
+             nes   TYPE /nfm/torderpos-nes,
+             nfs   TYPE /nfm/torderpos-nfs,
+             bcu   TYPE /nfm/torderpos-bcu,
+             neb   TYPE /nfm/torderpos-neb,
+           END OF ty_nfm_db,
+           BEGIN OF ty_nfm_ekko,
+             oc    TYPE vdm_purchaseorder,
+             ekorg TYPE ekko-ekorg,
+             lme   TYPE lfm1-j_1nboesl,
+           END OF ty_nfm_ekko,
+           BEGIN OF ty_nfm_qp,
+             quotdate TYPE oicqp-quotdate,
+             price    TYPE oicqp-price,
+           END OF ty_nfm_qp.
+
+    DATA: lt_nfm_db    TYPE STANDARD TABLE OF ty_nfm_db WITH EMPTY KEY,
+          lt_nfm_ekko  TYPE HASHED TABLE OF ty_nfm_ekko WITH UNIQUE KEY oc,
+          lt_nfm_qp    TYPE STANDARD TABLE OF ty_nfm_qp WITH EMPTY KEY,
+          lt_nfm_pos   TYPE STANDARD TABLE OF lcl_buffer=>ty_nfm WITH EMPTY KEY,
+          lv_nfm_lifnr TYPE ekko-lifnr,
+          lv_nfm_posnr TYPE /nfm/torderpos-posnr,
+          lv_nfm_err   TYPE abap_bool,
+          lv_nfm_kta   TYPE abap_bool,
+          lv_nfm_fecha TYPE c LENGTH 10,
+          lv_quotyp    TYPE oicqp-quotyp,
+          lv_quotno    TYPE oicqp-quotno.
 
     LOOP AT lt_moncomp ASSIGNING FIELD-SYMBOL(<fs_cnt_row>).
       READ TABLE lt_pos_cnt ASSIGNING FIELD-SYMBOL(<fs_pos_cnt>)
@@ -1434,6 +1487,181 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
           <fs_change_pos>-is_poheader-po_number  = <fs_moncomp>-oc.
           <fs_change_pos>-is_poheaderx-po_number = abap_true.
         ENDIF.
+      ENDIF.
+
+      IF <fs_moncomp>-TipoDocumento = 'L' AND <fs_moncomp>-IsNfm = 'X'.
+        IF <fs_moncomp>-FechaFactura IS INITIAL.
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                       %key-Posicion         = <fs_moncomp>-Posicion
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                       %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
+                                                   %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                       number   = 044
+                                                                       v1       = <fs_moncomp>-oc
+                                                                       v2       = <fs_moncomp>-Posicion
+                                                                       severity = if_abap_behv_message=>severity-error ) ) ).
+          CLEAR lv_timestamp.
+          CONTINUE.
+        ENDIF.
+
+        READ TABLE lt_nfm_ekko ASSIGNING FIELD-SYMBOL(<fs_nfm_ekko>)
+            WITH TABLE KEY oc = <fs_moncomp>-oc.
+        IF sy-subrc IS NOT INITIAL.
+          INSERT VALUE #( oc = <fs_moncomp>-oc ) INTO TABLE lt_nfm_ekko ASSIGNING <fs_nfm_ekko>.
+          CLEAR lv_nfm_lifnr.
+          SELECT SINGLE lifnr, ekorg
+            FROM ekko
+            WHERE ebeln = @<fs_moncomp>-oc
+            INTO (@lv_nfm_lifnr, @<fs_nfm_ekko>-ekorg).
+          IF sy-subrc IS INITIAL.
+            SELECT SINGLE j_1nboesl
+              FROM lfm1
+              WHERE lifnr = @lv_nfm_lifnr
+                AND ekorg = @<fs_nfm_ekko>-ekorg
+              INTO @<fs_nfm_ekko>-lme.
+          ENDIF.
+        ENDIF.
+
+        CLEAR lt_nfm_db.
+        IF <fs_nfm_ekko>-lme IS NOT INITIAL.
+          lv_nfm_posnr = <fs_moncomp>-Posicion.
+          SELECT blt, belnr, posnr, bukrs, gjahr, nes, nfs, bcu, neb
+            FROM /nfm/torderpos
+            WHERE belnr = @<fs_moncomp>-oc
+              AND posnr = @lv_nfm_posnr
+              AND bukrs = @<fs_moncomp>-Sociedad
+            INTO TABLE @lt_nfm_db.
+        ENDIF.
+
+        IF lt_nfm_db IS INITIAL.
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                       %key-Posicion         = <fs_moncomp>-Posicion
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                       %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
+                                                   %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                       number   = 043
+                                                                       v1       = <fs_moncomp>-oc
+                                                                       v2       = <fs_moncomp>-Posicion
+                                                                       severity = if_abap_behv_message=>severity-error ) ) ).
+          CLEAR lv_timestamp.
+          CONTINUE.
+        ENDIF.
+
+        CLEAR lv_nfm_err.
+        LOOP AT lt_nfm_db ASSIGNING FIELD-SYMBOL(<fs_nfm_db>)
+             WHERE nfs <> '01' AND nfs <> '04'.
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                       %key-Posicion         = <fs_moncomp>-Posicion
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                       %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
+                                                   %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                       number   = 045
+                                                                       v1       = <fs_moncomp>-oc
+                                                                       v2       = <fs_moncomp>-Posicion
+                                                                       v3       = <fs_nfm_db>-nfs
+                                                                       severity = if_abap_behv_message=>severity-error ) ) ).
+          lv_nfm_err = abap_true.
+          EXIT.
+        ENDLOOP.
+
+        IF lv_nfm_err = abap_true.
+          CLEAR lv_timestamp.
+          CONTINUE.
+        ENDIF.
+
+        CLEAR lt_nfm_pos.
+        LOOP AT lt_nfm_db ASSIGNING <fs_nfm_db>.
+          IF <fs_nfm_db>-nfs = '01'.
+            CONCATENATE 'T1' <fs_nfm_ekko>-lme INTO lv_quotyp.
+          ELSE.
+            CONCATENATE 'M1' <fs_nfm_ekko>-lme INTO lv_quotyp.
+          ENDIF.
+          CONCATENATE <fs_nfm_db>-nes 'M' <fs_nfm_ekko>-ekorg <fs_nfm_db>-bcu INTO lv_quotno.
+
+          CLEAR lt_nfm_qp.
+          SELECT quotdate, price
+            FROM oicqp
+            WHERE quosrc   = 'NF'
+              AND quotyp   = @lv_quotyp
+              AND quotno   = @lv_quotno
+              AND quotdate <= @<fs_moncomp>-FechaFactura
+            ORDER BY quotdate DESCENDING
+            INTO TABLE @lt_nfm_qp
+            UP TO 1 ROWS.
+
+          READ TABLE lt_nfm_qp ASSIGNING FIELD-SYMBOL(<fs_nfm_qp>) INDEX 1.
+          IF sy-subrc IS NOT INITIAL.
+            lv_nfm_err = abap_true.
+            EXIT.
+          ENDIF.
+
+          lv_nfm_kta = xsdbool( lv_quotyp+0(2) = 'T1' ).
+
+          APPEND VALUE #( blt      = <fs_nfm_db>-blt
+                          belnr    = <fs_nfm_db>-belnr
+                          posnr    = <fs_nfm_db>-posnr
+                          bukrs    = <fs_nfm_db>-bukrs
+                          gjahr    = <fs_nfm_db>-gjahr
+                          nes      = <fs_nfm_db>-nes
+                          kta      = COND #( WHEN lv_nfm_kta = abap_true THEN <fs_nfm_qp>-quotdate )
+                          ndt      = <fs_moncomp>-FechaFactura
+                          nmo      = COND #( WHEN lv_nfm_kta = abap_false THEN CONV /nfm/nmo( <fs_nfm_qp>-quotdate+0(6) ) )
+                          nku      = <fs_nfm_qp>-price
+                          nno      = <fs_nfm_qp>-price
+                          nkn      = <fs_nfm_qp>-price
+                          upd_kta  = lv_nfm_kta
+                          upd_nmo  = xsdbool( lv_nfm_kta = abap_false )
+                          oc       = <fs_moncomp>-oc
+                          posicion = <fs_moncomp>-Posicion ) TO lt_nfm_pos.
+        ENDLOOP.
+
+        IF lv_nfm_err = abap_true.
+          lv_nfm_fecha = |{ <fs_moncomp>-FechaFactura+6(2) }.{ <fs_moncomp>-FechaFactura+4(2) }.{ <fs_moncomp>-FechaFactura+0(4) }|.
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                       %key-Posicion         = <fs_moncomp>-Posicion
+                                                                       %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                       %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
+                                                   %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                       number   = 042
+                                                                       v1       = <fs_moncomp>-oc
+                                                                       v2       = <fs_moncomp>-Posicion
+                                                                       v3       = lv_nfm_fecha
+                                                                       severity = if_abap_behv_message=>severity-error ) ) ).
+          CLEAR lv_timestamp.
+          CONTINUE.
+        ENDIF.
+
+        APPEND LINES OF lt_nfm_pos TO lcl_buffer=>gt_nfm.
+
+        APPEND VALUE #( client          = sy-mandt
+                        oc              = <fs_moncomp>-oc
+                        posicion        = <fs_moncomp>-Posicion
+                        vbeln           = <fs_moncomp>-DeliveryDocument
+                        usuario         = cl_abap_context_info=>get_user_technical_name( )
+                        fecha_hora      = lv_timestamp
+                        precio_asn      = <fs_moncomp>-PrecioASN
+                        moneda_asn      = <fs_moncomp>-MonedaASN
+                        accion          = '01'
+                        estado          = '06'
+                        precio_anterior = <fs_moncomp>-PrecioOC
+                        precio_nuevo    = <fs_moncomp>-PrecioASN ) TO lcl_buffer=>gt_log.
+
+        reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                 %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
+                                                                     %key-Posicion         = <fs_moncomp>-Posicion
+                                                                     %key-DeliveryDocument = <fs_moncomp>-DeliveryDocument
+                                                                     %key-FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%tky
+                                                 %msg = new_message( id       = 'ZCL_MSG_MM_003'
+                                                                     number   = 017
+                                                                     v1       = <fs_moncomp>-oc
+                                                                     v2       = <fs_moncomp>-Posicion
+                                                                     severity = if_abap_behv_message=>severity-success ) ) ).
+        CLEAR lv_timestamp.
+        CONTINUE.
       ENDIF.
 
       IF <fs_moncomp>-TipoDocumento = 'L'.
@@ -2447,11 +2675,55 @@ CLASS lsc_ZI_MM_MONCOMP IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD save.
+    DATA lv_log_before TYPE i.
+
+    LOOP AT lcl_buffer=>gt_nfm ASSIGNING FIELD-SYMBOL(<fs_nfm>).
+      IF <fs_nfm>-upd_kta = abap_true.
+        UPDATE /nfm/torderpos
+          SET kta = @<fs_nfm>-kta,
+              ndt = @<fs_nfm>-ndt,
+              nku = @<fs_nfm>-nku,
+              nno = @<fs_nfm>-nno,
+              nkn = @<fs_nfm>-nkn
+          WHERE blt   = @<fs_nfm>-blt
+            AND belnr = @<fs_nfm>-belnr
+            AND posnr = @<fs_nfm>-posnr
+            AND bukrs = @<fs_nfm>-bukrs
+            AND gjahr = @<fs_nfm>-gjahr
+            AND nes   = @<fs_nfm>-nes.
+      ELSE.
+        UPDATE /nfm/torderpos
+          SET nmo = @<fs_nfm>-nmo,
+              ndt = @<fs_nfm>-ndt,
+              nku = @<fs_nfm>-nku,
+              nno = @<fs_nfm>-nno,
+              nkn = @<fs_nfm>-nkn
+          WHERE blt   = @<fs_nfm>-blt
+            AND belnr = @<fs_nfm>-belnr
+            AND posnr = @<fs_nfm>-posnr
+            AND bukrs = @<fs_nfm>-bukrs
+            AND gjahr = @<fs_nfm>-gjahr
+            AND nes   = @<fs_nfm>-nes.
+      ENDIF.
+
+      IF sy-subrc IS NOT INITIAL.
+        lv_log_before = lines( lcl_buffer=>gt_log ).
+        DELETE lcl_buffer=>gt_log WHERE oc = <fs_nfm>-oc AND posicion = <fs_nfm>-posicion.
+        IF lines( lcl_buffer=>gt_log ) < lv_log_before.
+          reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
+                                                   %msg = new_message_with_text(
+                                                            severity = if_abap_behv_message=>severity-error
+                                                            text     = |No se actualizó /NFM/TORDERPOS { <fs_nfm>-oc }/{ <fs_nfm>-posicion }.| ) ) ).
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+
     IF lcl_buffer=>gt_log IS NOT INITIAL.
       INSERT zmm_moncomp_log FROM TABLE @lcl_buffer=>gt_log.
 
       IF sy-subrc IS INITIAL.
-        reported-zi_mm_moncomp = VALUE #( ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
+        reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp
+                                          ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                 number   = 013
                                                                 severity = if_abap_behv_message=>severity-success ) ) ).
       ELSE.
@@ -2460,7 +2732,8 @@ CLASS lsc_ZI_MM_MONCOMP IMPLEMENTATION.
         ELSE.
           failed-zi_mm_moncomp = VALUE #( ( %action-uploadExcel = 1 ) ).
         ENDIF.
-        reported-zi_mm_moncomp = VALUE #( ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
+        reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp
+                                          ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
                                                                 number   = 014
                                                                 severity = if_abap_behv_message=>severity-error ) ) ).
       ENDIF.
@@ -2471,6 +2744,7 @@ CLASS lsc_ZI_MM_MONCOMP IMPLEMENTATION.
     CLEAR: lcl_buffer=>gt_log,
            lcl_buffer=>gt_sag,
            lcl_buffer=>gt_sag_id,
+           lcl_buffer=>gt_nfm,
            lcl_buffer=>gv_failed_action.
   ENDMETHOD.
 
