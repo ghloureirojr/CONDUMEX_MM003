@@ -1,0 +1,19 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Wrapper TORDERPOS'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_WRAPPER_TORDERPOS
+  as select from /nfm/torderpos
+{
+  key blt   as DocumentCategory,
+  key belnr as DocumentNumber,
+  key posnr as DocumentItem,
+  key bukrs as CompanyCode,
+  key gjahr as FiscalYear,
+  key nes   as NfmKey,
+      nfs   as NfmKeyType,
+      bcu   as BaseCurrency,
+      kta   as ActualRateDate,
+      ndt   as RateDeterminationDate,
+      nmo   as RateMonth
+}
