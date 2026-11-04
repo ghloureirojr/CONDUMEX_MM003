@@ -1,0 +1,16 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Wrapper OICQP'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_MM_WRAPPER_OICQP
+  as select from oicqp
+{
+  key quosrc   as QuotationSource,
+  key quotyp   as QuotationType,
+  key quotno   as QuotationNumber,
+  key quotdate as QuotationDate,
+      @Semantics.amount.currencyCode: 'DefaultCurrency'
+      price    as Price,
+      @Semantics.currencyCode: true
+      defcurr  as DefaultCurrency
+}
