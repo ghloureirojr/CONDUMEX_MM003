@@ -1,0 +1,425 @@
+*&---------------------------------------------------------------------*
+*& Report ZMM003_PASO8_JOB
+*& Pacote: ZGAP_MM_003_T3 (Standard ABAP, tier 3)
+*& GAP MM003 - Paso 8 por job. Le ZI_MM_MONCOMP_PASO8 inteira e grava
+*& o PrecioASN como o Autorizar Precio ASN (authPrecioASN). Sem tela de
+*& selecao. Saida: lista do report (spool do job na SM37).
+*&---------------------------------------------------------------------*
+REPORT zmm003_paso8_job LINE-SIZE 255 NO STANDARD PAGE HEADING.
+
+CLASS lcl_paso8 DEFINITION FINAL CREATE PUBLIC.
+  PUBLIC SECTION.
+    METHODS run.
+
+  PRIVATE SECTION.
+    TYPES: BEGIN OF ty_univ,
+             oc                   TYPE zi_mm_moncomp_paso8-oc,
+             posicion             TYPE zi_mm_moncomp_paso8-posicion,
+             deliverydocument     TYPE zi_mm_moncomp_paso8-deliverydocument,
+             sociedad             TYPE zi_mm_moncomp_paso8-sociedad,
+             tipodocumento        TYPE zi_mm_moncomp_paso8-tipodocumento,
+             isnfm                TYPE zi_mm_moncomp_paso8-isnfm,
+             preciooc             TYPE zi_mm_moncomp_paso8-preciooc,
+             precioasn            TYPE zi_mm_moncomp_paso8-precioasn,
+             monedaasn            TYPE zi_mm_moncomp_paso8-monedaasn,
+             cantidadpedidaunidad TYPE zi_mm_moncomp_paso8-cantidadpedidaunidad,
+             fechafactura         TYPE zi_mm_moncomp_paso8-fechafactura,
+           END OF ty_univ,
+           tt_univ TYPE STANDARD TABLE OF ty_univ WITH EMPTY KEY,
+
+           BEGIN OF ty_pos,
+             oc          TYPE ebeln,
+             sociedad    TYPE zi_mm_moncomp_paso8-sociedad,
+             posicion    TYPE ebelp,
+             row         TYPE bapiret2-row,
+             nfm         TYPE abap_bool,
+             precio_asn  TYPE zi_mm_moncomp_paso8-precioasn,
+             monto       TYPE bapicurext,
+             peinh       TYPE epein,
+             moneda      TYPE waers,
+             unidad      TYPE meins,
+             fecha       TYPE dats,
+             fecha_nfm   TYPE dats,
+             flag_x      TYPE abap_bool,
+             flag_precio TYPE abap_bool,
+             flag_peinh  TYPE abap_bool,
+           END OF ty_pos,
+           tt_pos      TYPE HASHED TABLE OF ty_pos WITH UNIQUE KEY posicion,
+           tt_pos_list TYPE STANDARD TABLE OF ty_pos WITH EMPTY KEY,
+
+           BEGIN OF ty_err,
+             posicion TYPE ebelp,
+           END OF ty_err,
+           tt_err TYPE HASHED TABLE OF ty_err WITH UNIQUE KEY posicion,
+
+           tt_log TYPE STANDARD TABLE OF zmm_moncomp_log WITH EMPTY KEY,
+
+           BEGIN OF ty_doc,
+             oc       TYPE ebeln,
+             sociedad TYPE zi_mm_moncomp_paso8-sociedad,
+             es_plan  TYPE abap_bool,
+             t_pos    TYPE tt_pos,
+             t_err    TYPE tt_err,
+             t_log    TYPE tt_log,
+           END OF ty_doc,
+           tt_doc TYPE HASHED TABLE OF ty_doc WITH UNIQUE KEY oc,
+
+           tt_ret     TYPE SORTED TABLE OF bapiret2 WITH NON-UNIQUE KEY type row,
+           tt_ret_row TYPE SORTED TABLE OF bapiret2 WITH NON-UNIQUE KEY row,
+
+           BEGIN OF ty_msg,
+             oc       TYPE ebeln,
+             sociedad TYPE zi_mm_moncomp_paso8-sociedad.
+             INCLUDE TYPE bapiret2.
+    TYPES: END OF ty_msg,
+           tt_msg TYPE STANDARD TABLE OF ty_msg WITH EMPTY KEY.
+
+    CONSTANTS: lc_peinh  TYPE epein VALUE 1000,
+               lc_accion TYPE zmm_moncomp_log-accion VALUE '01',
+               lc_estado TYPE zmm_moncomp_log-estado VALUE '06'.
+
+    DATA: mt_doc  TYPE tt_doc,
+          mt_fail TYPE tt_pos_list,
+          mt_msg  TYPE tt_msg,
+          mv_user TYPE zmm_moncomp_log-usuario,
+          mv_ok   TYPE i,
+          mv_err  TYPE i,
+          mv_log  TYPE i.
+
+    METHODS collect
+      IMPORTING it_univ TYPE tt_univ.
+
+    METHODS build_pos
+      IMPORTING is_univ       TYPE ty_univ
+                iv_plan       TYPE abap_bool
+      RETURNING VALUE(rs_pos) TYPE ty_pos.
+
+    METHODS mark_error
+      IMPORTING iv_texto TYPE string
+                is_univ  TYPE ty_univ
+      CHANGING  ct_err   TYPE tt_err.
+
+    METHODS process.
+
+    METHODS call_po
+      IMPORTING iv_oc         TYPE ebeln
+                it_pos        TYPE tt_pos
+      RETURNING VALUE(rt_ret) TYPE tt_ret.
+
+    METHODS call_sag
+      IMPORTING iv_oc         TYPE ebeln
+                it_pos        TYPE tt_pos
+      RETURNING VALUE(rt_ret) TYPE tt_ret.
+
+    METHODS po_ok
+      IMPORTING it_ret       TYPE tt_ret
+      RETURNING VALUE(rv_ok) TYPE abap_bool.
+
+    METHODS sag_good
+      IMPORTING it_pos         TYPE tt_pos
+                it_ret         TYPE tt_ret
+      RETURNING VALUE(rt_good) TYPE tt_pos.
+
+    METHODS keep_errors
+      IMPORTING is_doc  TYPE ty_doc
+                it_fail TYPE tt_pos
+                it_ret  TYPE tt_ret.
+
+    METHODS save_log
+      IMPORTING is_doc  TYPE ty_doc
+                it_good TYPE tt_pos.
+
+    METHODS print_details.
+
+    METHODS msg_text
+      IMPORTING is_msg         TYPE ty_msg
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS lcl_paso8 IMPLEMENTATION.
+  METHOD run.
+    DATA lt_univ TYPE tt_univ.
+
+    SELECT oc, posicion, deliverydocument, sociedad, tipodocumento, isnfm,
+           preciooc, precioasn, monedaasn, cantidadpedidaunidad, fechafactura
+      FROM zi_mm_moncomp_paso8
+      ORDER BY oc, posicion, deliverydocument
+      INTO CORRESPONDING FIELDS OF TABLE @lt_univ.
+
+    IF lt_univ IS INITIAL.
+      WRITE / 'Paso 8: sin posiciones para procesar.'.
+      RETURN.
+    ENDIF.
+
+    mv_user = cl_abap_context_info=>get_user_technical_name( ).
+
+    WRITE / |Paso 8: registros leídos { lines( lt_univ ) }.|.
+    ULINE.
+
+    collect( lt_univ ).
+    process( ).
+    print_details( ).
+
+    ULINE.
+    WRITE / |Resumen: posiciones actualizadas { mv_ok }, posiciones con error { mv_err }, registros de log { mv_log }.|.
+  ENDMETHOD.
+
+  METHOD collect.
+    LOOP AT it_univ ASSIGNING FIELD-SYMBOL(<ls_univ>).
+      READ TABLE mt_doc ASSIGNING FIELD-SYMBOL(<ls_doc>)
+           WITH TABLE KEY oc = <ls_univ>-oc.
+      IF sy-subrc <> 0.
+        INSERT VALUE #( oc       = <ls_univ>-oc
+                        sociedad = <ls_univ>-sociedad
+                        es_plan  = xsdbool( <ls_univ>-tipodocumento = 'L' ) )
+               INTO TABLE mt_doc ASSIGNING <ls_doc>.
+      ENDIF.
+
+      READ TABLE <ls_doc>-t_pos ASSIGNING FIELD-SYMBOL(<ls_pos>)
+           WITH TABLE KEY posicion = <ls_univ>-posicion.
+      IF sy-subrc <> 0.
+        INSERT build_pos( is_univ = <ls_univ>
+                          iv_plan = <ls_doc>-es_plan )
+               INTO TABLE <ls_doc>-t_pos ASSIGNING <ls_pos>.
+        IF <ls_pos>-nfm = abap_true AND <ls_univ>-fechafactura IS INITIAL.
+          mark_error( EXPORTING iv_texto = `OC NFM sin fecha de factura. No se actualiza.`
+                                is_univ  = <ls_univ>
+                      CHANGING  ct_err   = <ls_doc>-t_err ).
+        ENDIF.
+      ELSEIF NOT line_exists( <ls_doc>-t_err[ posicion = <ls_univ>-posicion ] ).
+        IF <ls_univ>-precioasn <> <ls_pos>-precio_asn.
+          mark_error( EXPORTING iv_texto = `Precio ASN no único entre entregas. No se actualiza.`
+                                is_univ  = <ls_univ>
+                      CHANGING  ct_err   = <ls_doc>-t_err ).
+        ELSEIF <ls_pos>-nfm = abap_true AND <ls_univ>-fechafactura IS INITIAL.
+          mark_error( EXPORTING iv_texto = `OC NFM sin fecha de factura. No se actualiza.`
+                                is_univ  = <ls_univ>
+                      CHANGING  ct_err   = <ls_doc>-t_err ).
+        ELSEIF <ls_pos>-nfm = abap_true AND <ls_univ>-fechafactura <> <ls_pos>-fecha_nfm.
+          "OC NFM: o Autorizar recusa posicao repetida e nao ha decisao funcional
+          "sobre qual data usar; posicao vai para erro, sem BAPI.
+          mark_error( EXPORTING iv_texto = `OC NFM con fechas de factura distintas entre entregas. No se actualiza.`
+                                is_univ  = <ls_univ>
+                      CHANGING  ct_err   = <ls_doc>-t_err ).
+        ENDIF.
+      ENDIF.
+
+      APPEND VALUE #( client          = sy-mandt
+                      oc              = <ls_univ>-oc
+                      posicion        = <ls_univ>-posicion
+                      vbeln           = <ls_univ>-deliverydocument
+                      usuario         = mv_user
+                      precio_asn      = <ls_univ>-precioasn
+                      moneda_asn      = <ls_univ>-monedaasn
+                      accion          = lc_accion
+                      estado          = lc_estado
+                      precio_anterior = <ls_univ>-preciooc
+                      precio_nuevo    = <ls_univ>-precioasn ) TO <ls_doc>-t_log.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD build_pos.
+    rs_pos = VALUE #( oc         = is_univ-oc
+                      sociedad   = is_univ-sociedad
+                      posicion   = is_univ-posicion
+                      row        = is_univ-posicion
+                      precio_asn = is_univ-precioasn
+                      flag_x     = abap_true ).
+
+    IF iv_plan = abap_true.
+      "Plano com ou sem NFM (cenarios 2, 4 e 6): mesmo ramo iv_vigencia_asn do
+      "SAG. Cenario 4 nao usa update_rates nem POSCHEDULE/NFMETALLITMS
+      "(decisao Gilson 06.11.2026, so neste report; o RAP nao muda).
+      rs_pos-monto  = round( val = CONV decfloat34( is_univ-precioasn ) * lc_peinh dec = 2 ).
+      rs_pos-peinh  = lc_peinh.
+      rs_pos-moneda = is_univ-monedaasn.
+      rs_pos-unidad = is_univ-cantidadpedidaunidad.
+      rs_pos-fecha  = is_univ-fechafactura.
+    ELSEIF is_univ-isnfm = 'X'.
+      "OC NFM: so po_item + invoice_date, como o Autorizar. Sem filtro de ja
+      "processado (D4 em aberto): a posicao pode ser regravada a cada execucao.
+      rs_pos-nfm       = abap_true.
+      rs_pos-fecha_nfm = is_univ-fechafactura.
+    ELSE.
+      rs_pos-monto       = round( val = CONV decfloat34( is_univ-precioasn ) * lc_peinh dec = 2 ).
+      rs_pos-peinh       = lc_peinh.
+      rs_pos-flag_precio = abap_true.
+      rs_pos-flag_peinh  = abap_true.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD mark_error.
+    INSERT VALUE #( posicion = is_univ-posicion ) INTO TABLE ct_err.
+    mv_err = mv_err + 1.
+    WRITE / |Sociedad { is_univ-sociedad } Orden { is_univ-oc } Posición { is_univ-posicion }: { iv_texto }|.
+  ENDMETHOD.
+
+  METHOD process.
+    DATA: lt_ok   TYPE tt_pos,
+          lt_good TYPE tt_pos,
+          lt_fail TYPE tt_pos,
+          lt_ret  TYPE tt_ret.
+
+    LOOP AT mt_doc ASSIGNING FIELD-SYMBOL(<ls_doc>).
+      lt_ok = FILTER #( <ls_doc>-t_pos EXCEPT IN <ls_doc>-t_err WHERE posicion = posicion ).
+      IF lt_ok IS INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      IF <ls_doc>-es_plan = abap_true.
+        lt_ret  = call_sag( iv_oc  = <ls_doc>-oc
+                            it_pos = lt_ok ).
+        lt_good = sag_good( it_pos = lt_ok
+                            it_ret = lt_ret ).
+      ELSE.
+        lt_ret  = call_po( iv_oc  = <ls_doc>-oc
+                           it_pos = lt_ok ).
+        lt_good = COND #( WHEN po_ok( lt_ret ) = abap_true THEN lt_ok ).
+      ENDIF.
+
+      lt_fail = FILTER #( lt_ok EXCEPT IN lt_good WHERE posicion = posicion ).
+      mv_ok  = mv_ok + lines( lt_good ).
+      mv_err = mv_err + lines( lt_fail ).
+
+      IF lt_fail IS NOT INITIAL.
+        WRITE / |Sociedad { <ls_doc>-sociedad } Orden { <ls_doc>-oc }: error BAPI, posiciones no actualizadas { lines( lt_fail ) }.|.
+        keep_errors( is_doc  = <ls_doc>
+                     it_fail = lt_fail
+                     it_ret  = lt_ret ).
+      ENDIF.
+
+      IF lt_good IS NOT INITIAL.
+        save_log( is_doc  = <ls_doc>
+                  it_good = lt_good ).
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD call_po.
+    TRY.
+        rt_ret = zcl_mm_wrapper_po_change=>call_bapi_change_pos( VALUE #(
+                   iv_purchaseorder = iv_oc
+                   is_poheader      = VALUE #( po_number = iv_oc )
+                   is_poheaderx     = VALUE #( po_number = abap_true )
+                   t_poitem         = CORRESPONDING #( it_pos MAPPING po_item      = posicion
+                                                                      net_price    = monto
+                                                                      price_unit   = peinh
+                                                                      invoice_date = fecha_nfm
+                                                              EXCEPT * )
+                   t_poitemx        = CORRESPONDING #( it_pos MAPPING po_item    = posicion
+                                                                      po_itemx   = flag_x
+                                                                      net_price  = flag_precio
+                                                                      price_unit = flag_peinh
+                                                              EXCEPT * ) ) ).
+      CATCH cx_root INTO DATA(lx_po).
+        rt_ret = VALUE #( ( type = 'E' message = lx_po->get_text( ) ) ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD call_sag.
+    TRY.
+        rt_ret = zcl_mm_wrapper_sag_change=>call_bapi_change( VALUE #(
+                   iv_purchasingdocument = iv_oc
+                   iv_vigencia_asn       = abap_true
+                   t_item                = CORRESPONDING #( it_pos MAPPING item         = posicion
+                                                                           price        = monto
+                                                                           currency     = moneda
+                                                                           unit         = unidad
+                                                                           price_unit   = peinh
+                                                                           invoice_date = fecha
+                                                                   EXCEPT * ) ) ).
+      CATCH cx_root INTO DATA(lx_sag).
+        rt_ret = VALUE #( ( type = 'E' message = lx_sag->get_text( ) ) ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD po_ok.
+    rv_ok = xsdbool( NOT line_exists( it_ret[ type = 'E' ] )
+                 AND NOT line_exists( it_ret[ type = 'A' ] )
+                 AND line_exists( it_ret[ type = 'S' ] ) ).
+  ENDMETHOD.
+
+  METHOD sag_good.
+    DATA: lt_s      TYPE tt_ret,
+          lt_e      TYPE tt_ret,
+          lt_a      TYPE tt_ret,
+          lt_row_s  TYPE tt_ret_row,
+          lt_row_ea TYPE tt_ret_row,
+          lt_with_s TYPE tt_pos.
+
+    IF line_exists( it_ret[ type = 'E' row = 0 ] ) OR line_exists( it_ret[ type = 'A' row = 0 ] ).
+      RETURN.
+    ENDIF.
+
+    lt_s = FILTER #( it_ret WHERE type = 'S' ).
+    lt_e = FILTER #( it_ret WHERE type = 'E' ).
+    lt_a = FILTER #( it_ret WHERE type = 'A' ).
+
+    lt_row_s  = lt_s.
+    lt_row_ea = lt_e.
+    INSERT LINES OF lt_a INTO TABLE lt_row_ea.
+
+    lt_with_s = FILTER #( it_pos IN lt_row_s WHERE row = row ).
+    rt_good   = FILTER #( lt_with_s EXCEPT IN lt_row_ea WHERE row = row ).
+  ENDMETHOD.
+
+  METHOD keep_errors.
+    DATA lt_msg TYPE tt_msg.
+
+    APPEND LINES OF it_fail TO mt_fail.
+
+    lt_msg = CORRESPONDING #( it_ret ).
+    MODIFY lt_msg FROM VALUE #( oc = is_doc-oc sociedad = is_doc-sociedad )
+           TRANSPORTING oc sociedad WHERE oc IS INITIAL.
+    APPEND LINES OF lt_msg TO mt_msg.
+  ENDMETHOD.
+
+  METHOD save_log.
+    DATA: lt_log TYPE tt_log,
+          lv_ts  TYPE timestamp.
+
+    lt_log = FILTER #( is_doc-t_log IN it_good WHERE posicion = posicion ).
+    GET TIME STAMP FIELD lv_ts.
+    MODIFY lt_log FROM VALUE #( fecha_hora = lv_ts ) TRANSPORTING fecha_hora WHERE fecha_hora IS INITIAL.
+
+    TRY.
+        INSERT zmm_moncomp_log FROM TABLE @lt_log.
+        COMMIT WORK.
+        mv_log = mv_log + lines( lt_log ).
+        WRITE / |Sociedad { is_doc-sociedad } Orden { is_doc-oc }: precio actualizado, posiciones { lines( it_good ) }.|.
+      CATCH cx_sy_open_sql_db INTO DATA(lx_db).
+        ROLLBACK WORK.
+        WRITE / |Sociedad { is_doc-sociedad } Orden { is_doc-oc }: precio actualizado, log no grabado. { lx_db->get_text( ) }|.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD print_details.
+    IF mt_fail IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    ULINE.
+    WRITE / 'Posiciones no actualizadas por error BAPI:'.
+    LOOP AT mt_fail ASSIGNING FIELD-SYMBOL(<ls_fail>).
+      WRITE / |Sociedad { <ls_fail>-sociedad } Orden { <ls_fail>-oc } Posición { <ls_fail>-posicion }: error BAPI. No se actualiza.|.
+    ENDLOOP.
+
+    WRITE / 'Mensajes BAPI:'.
+    LOOP AT mt_msg ASSIGNING FIELD-SYMBOL(<ls_msg>).
+      IF <ls_msg>-type = 'S'.
+        CONTINUE.
+      ENDIF.
+      WRITE / |Sociedad { <ls_msg>-sociedad } Orden { <ls_msg>-oc }{ COND string( WHEN <ls_msg>-row <> 0 THEN | Posición { <ls_msg>-row }| ) }: { <ls_msg>-type } { msg_text( <ls_msg> ) }|.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD msg_text.
+    rv_text = is_msg-message.
+    IF rv_text IS INITIAL.
+      rv_text = condense( |{ is_msg-id }/{ is_msg-number } { is_msg-message_v1 } { is_msg-message_v2 } { is_msg-message_v3 } { is_msg-message_v4 }| ).
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+  NEW lcl_paso8( )->run( ).
