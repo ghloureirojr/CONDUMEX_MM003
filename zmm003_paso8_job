@@ -283,28 +283,33 @@ CLASS lcl_paso8 IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD write_paso.
-    DATA: lt_hit  TYPE tt_zasn,
-          lt_zkey TYPE tt_zkey.
+    DATA lt_hit TYPE SORTED TABLE OF zasn WITH NON-UNIQUE KEY lifex delivery_num ebeln matnr werks.
 
     IF it_key IS INITIAL OR ct_pool IS INITIAL.
       RETURN.
     ENDIF.
 
-    lt_zkey = CORRESPONDING #( it_key DISCARDING DUPLICATES ).
-    lt_hit = FILTER #( ct_pool USING KEY grp IN lt_zkey
-                       WHERE lifex        = lifex
-                         AND delivery_num = delivery_num
-                         AND ebeln        = ebeln
-                         AND matnr        = matnr
-                         AND werks        = werks ).
-    DELETE lt_hit WHERE paso_008 <> lc_paso_pend.
+    LOOP AT ct_pool ASSIGNING FIELD-SYMBOL(<ls_zasn>).
+      IF <ls_zasn>-paso_008 <> lc_paso_pend.
+        CONTINUE.
+      ENDIF.
+      IF NOT line_exists( it_key[ KEY grp
+                                  lifex        = <ls_zasn>-lifex
+                                  delivery_num = <ls_zasn>-delivery_num
+                                  ebeln        = <ls_zasn>-ebeln
+                                  matnr        = <ls_zasn>-matnr
+                                  werks        = <ls_zasn>-werks ] ).
+        CONTINUE.
+      ENDIF.
+      <ls_zasn>-paso_008 = iv_paso.
+      INSERT <ls_zasn> INTO TABLE lt_hit.
+    ENDLOOP.
+
     IF lt_hit IS INITIAL.
       RETURN.
     ENDIF.
 
-    MODIFY lt_hit FROM VALUE #( paso_008 = iv_paso ) TRANSPORTING paso_008 WHERE paso_008 = lc_paso_pend.
     UPDATE zasn FROM TABLE @lt_hit.
-    MODIFY ct_pool FROM TABLE lt_hit TRANSPORTING paso_008.
   ENDMETHOD.
 
   METHOD collect.
