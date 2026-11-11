@@ -1,9 +1,10 @@
 *&---------------------------------------------------------------------*
 *& Report ZMM003_PASO8_JOB
 *& Pacote: ZGAP_MM_003_T3 (Standard ABAP, tier 3)
-*& GAP MM003 - Paso 8 por job. Le ZI_MM_MONCOMP_PASO8 inteira e grava
-*& o PrecioASN como o Autorizar Precio ASN (authPrecioASN). Sem tela de
-*& selecao. Saida: lista do report (spool do job na SM37).
+*& GAP MM003 - Paso 8 por job. Le ZI_MM_MONCOMP_PASO8 (ZASN paso 008 = 1)
+*& e grava o status 2/3 pela ClasifPaso8. So a clasif 8 grava o PrecioASN
+*& como o Autorizar Precio ASN (authPrecioASN). Sem tela de selecao.
+*& Saida: lista do report (spool do job na SM37).
 *&---------------------------------------------------------------------*
 REPORT zmm003_paso8_job LINE-SIZE 255 NO STANDARD PAGE HEADING.
 
@@ -24,6 +25,10 @@ CLASS lcl_paso8 DEFINITION FINAL CREATE PUBLIC.
              monedaasn            TYPE zi_mm_moncomp_paso8-monedaasn,
              cantidadpedidaunidad TYPE zi_mm_moncomp_paso8-cantidadpedidaunidad,
              fechafactura         TYPE zi_mm_moncomp_paso8-fechafactura,
+             facturaremision      TYPE zi_mm_moncomp_paso8-facturaremision,
+             material             TYPE zi_mm_moncomp_paso8-material,
+             centro               TYPE zi_mm_moncomp_paso8-centro,
+             clasifpaso8          TYPE zi_mm_moncomp_paso8-clasifpaso8,
            END OF ty_univ,
            tt_univ TYPE STANDARD TABLE OF ty_univ WITH EMPTY KEY,
 
@@ -52,7 +57,33 @@ CLASS lcl_paso8 DEFINITION FINAL CREATE PUBLIC.
            END OF ty_err,
            tt_err TYPE HASHED TABLE OF ty_err WITH UNIQUE KEY posicion,
 
-           tt_log TYPE STANDARD TABLE OF zmm_moncomp_log WITH EMPTY KEY,
+           tt_log TYPE SORTED TABLE OF zmm_moncomp_log WITH NON-UNIQUE KEY posicion,
+
+           BEGIN OF ty_zkey,
+             lifex        TYPE zasn-lifex,
+             delivery_num TYPE zasn-delivery_num,
+             ebeln        TYPE zasn-ebeln,
+             matnr        TYPE zasn-matnr,
+             werks        TYPE zasn-werks,
+             paso_008     TYPE zasn-paso_008,
+           END OF ty_zkey,
+           tt_zkey TYPE HASHED TABLE OF ty_zkey WITH UNIQUE KEY lifex delivery_num ebeln matnr werks
+                   WITH NON-UNIQUE SORTED KEY paso COMPONENTS paso_008,
+
+           BEGIN OF ty_ukey,
+             posicion     TYPE ebelp,
+             lifex        TYPE zasn-lifex,
+             delivery_num TYPE zasn-delivery_num,
+             ebeln        TYPE zasn-ebeln,
+             matnr        TYPE zasn-matnr,
+             werks        TYPE zasn-werks,
+           END OF ty_ukey,
+           tt_ukey TYPE HASHED TABLE OF ty_ukey
+                   WITH UNIQUE KEY posicion lifex delivery_num ebeln matnr werks
+                   WITH NON-UNIQUE SORTED KEY grp COMPONENTS lifex delivery_num ebeln matnr werks,
+           tt_zasn TYPE HASHED TABLE OF zasn
+                   WITH UNIQUE KEY client asn item lifnr vstel
+                   WITH NON-UNIQUE SORTED KEY grp COMPONENTS lifex delivery_num ebeln matnr werks,
 
            BEGIN OF ty_doc,
              oc       TYPE ebeln,
@@ -61,6 +92,7 @@ CLASS lcl_paso8 DEFINITION FINAL CREATE PUBLIC.
              t_pos    TYPE tt_pos,
              t_err    TYPE tt_err,
              t_log    TYPE tt_log,
+             t_key    TYPE tt_ukey,
            END OF ty_doc,
            tt_doc TYPE HASHED TABLE OF ty_doc WITH UNIQUE KEY oc,
 
@@ -76,7 +108,11 @@ CLASS lcl_paso8 DEFINITION FINAL CREATE PUBLIC.
 
     CONSTANTS: lc_peinh  TYPE epein VALUE 1000,
                lc_accion TYPE zmm_moncomp_log-accion VALUE '01',
-               lc_estado TYPE zmm_moncomp_log-estado VALUE '06'.
+               lc_estado TYPE zmm_moncomp_log-estado VALUE '06',
+               lc_clasif_bapi TYPE zi_mm_moncomp_paso8-clasifpaso8 VALUE '8',
+               lc_paso_pend   TYPE zasn-paso_008 VALUE '1',
+               lc_paso_ok     TYPE zasn-paso_008 VALUE '2',
+               lc_paso_err    TYPE zasn-paso_008 VALUE '3'.
 
     DATA: mt_doc  TYPE tt_doc,
           mt_fail TYPE tt_pos_list,
@@ -85,6 +121,22 @@ CLASS lcl_paso8 DEFINITION FINAL CREATE PUBLIC.
           mv_ok   TYPE i,
           mv_err  TYPE i,
           mv_log  TYPE i.
+
+    METHODS save_clasif
+      IMPORTING it_univ TYPE tt_univ.
+
+    METHODS set_paso
+      IMPORTING it_key  TYPE tt_zkey
+                iv_paso TYPE zasn-paso_008.
+
+    METHODS read_zasn
+      IMPORTING it_key         TYPE tt_zkey
+      RETURNING VALUE(rt_pool) TYPE tt_zasn.
+
+    METHODS write_paso
+      IMPORTING it_key  TYPE tt_ukey
+                iv_paso TYPE zasn-paso_008
+      CHANGING  ct_pool TYPE tt_zasn.
 
     METHODS collect
       IMPORTING it_univ TYPE tt_univ.
@@ -127,7 +179,8 @@ CLASS lcl_paso8 DEFINITION FINAL CREATE PUBLIC.
 
     METHODS save_log
       IMPORTING is_doc  TYPE ty_doc
-                it_good TYPE tt_pos.
+                it_good TYPE tt_pos
+      CHANGING  ct_pool TYPE tt_zasn.
 
     METHODS print_details.
 
@@ -141,7 +194,8 @@ CLASS lcl_paso8 IMPLEMENTATION.
     DATA lt_univ TYPE tt_univ.
 
     SELECT oc, posicion, deliverydocument, sociedad, tipodocumento, isnfm,
-           preciooc, precioasn, monedaasn, cantidadpedidaunidad, fechafactura
+           preciooc, precioasn, monedaasn, cantidadpedidaunidad, fechafactura,
+           facturaremision, material, centro, clasifpaso8
       FROM zi_mm_moncomp_paso8
       ORDER BY oc, posicion, deliverydocument
       INTO CORRESPONDING FIELDS OF TABLE @lt_univ.
@@ -156,6 +210,7 @@ CLASS lcl_paso8 IMPLEMENTATION.
     WRITE / |Paso 8: registros leídos { lines( lt_univ ) }.|.
     ULINE.
 
+    save_clasif( lt_univ ).
     collect( lt_univ ).
     process( ).
     print_details( ).
@@ -164,8 +219,94 @@ CLASS lcl_paso8 IMPLEMENTATION.
     WRITE / |Resumen: posiciones actualizadas { mv_ok }, posiciones con error { mv_err }, registros de log { mv_log }.|.
   ENDMETHOD.
 
+  METHOD save_clasif.
+    DATA lt_key TYPE tt_zkey.
+
+    LOOP AT it_univ ASSIGNING FIELD-SYMBOL(<ls_univ>) WHERE clasifpaso8 <> lc_clasif_bapi.
+      INSERT VALUE #( lifex        = <ls_univ>-facturaremision
+                      delivery_num = <ls_univ>-deliverydocument
+                      ebeln        = <ls_univ>-oc
+                      matnr        = <ls_univ>-material
+                      werks        = <ls_univ>-centro
+                      paso_008     = <ls_univ>-clasifpaso8 ) INTO TABLE lt_key.
+    ENDLOOP.
+
+    IF lt_key IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    set_paso( it_key  = FILTER #( lt_key USING KEY paso WHERE paso_008 = lc_paso_ok )
+              iv_paso = lc_paso_ok ).
+    set_paso( it_key  = FILTER #( lt_key USING KEY paso WHERE paso_008 = lc_paso_err )
+              iv_paso = lc_paso_err ).
+    COMMIT WORK.
+  ENDMETHOD.
+
+  METHOD set_paso.
+    DATA lt_zasn TYPE SORTED TABLE OF zasn WITH NON-UNIQUE KEY lifex delivery_num ebeln matnr werks.
+
+    IF it_key IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    SELECT * FROM zasn
+      FOR ALL ENTRIES IN @it_key
+      WHERE lifex        = @it_key-lifex
+        AND delivery_num = @it_key-delivery_num
+        AND ebeln        = @it_key-ebeln
+        AND matnr        = @it_key-matnr
+        AND werks        = @it_key-werks
+        AND paso_008     = @lc_paso_pend
+      INTO TABLE @lt_zasn.
+    IF lt_zasn IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    MODIFY lt_zasn FROM VALUE #( paso_008 = iv_paso ) TRANSPORTING paso_008 WHERE paso_008 = lc_paso_pend.
+    UPDATE zasn FROM TABLE @lt_zasn.
+  ENDMETHOD.
+
+  METHOD read_zasn.
+    IF it_key IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    SELECT * FROM zasn
+      FOR ALL ENTRIES IN @it_key
+      WHERE lifex        = @it_key-lifex
+        AND delivery_num = @it_key-delivery_num
+        AND ebeln        = @it_key-ebeln
+        AND matnr        = @it_key-matnr
+        AND werks        = @it_key-werks
+        AND paso_008     = @lc_paso_pend
+      INTO TABLE @rt_pool.
+  ENDMETHOD.
+
+  METHOD write_paso.
+    DATA lt_hit TYPE tt_zasn.
+
+    IF it_key IS INITIAL OR ct_pool IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    lt_hit = FILTER #( ct_pool USING KEY grp IN it_key USING KEY grp
+                       WHERE lifex        = lifex
+                         AND delivery_num = delivery_num
+                         AND ebeln        = ebeln
+                         AND matnr        = matnr
+                         AND werks        = werks ).
+    DELETE lt_hit WHERE paso_008 <> lc_paso_pend.
+    IF lt_hit IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    MODIFY lt_hit FROM VALUE #( paso_008 = iv_paso ) TRANSPORTING paso_008 WHERE paso_008 = lc_paso_pend.
+    UPDATE zasn FROM TABLE @lt_hit.
+    MODIFY ct_pool FROM TABLE lt_hit TRANSPORTING paso_008.
+  ENDMETHOD.
+
   METHOD collect.
-    LOOP AT it_univ ASSIGNING FIELD-SYMBOL(<ls_univ>).
+    LOOP AT it_univ ASSIGNING FIELD-SYMBOL(<ls_univ>) WHERE clasifpaso8 = lc_clasif_bapi.
       READ TABLE mt_doc ASSIGNING FIELD-SYMBOL(<ls_doc>)
            WITH TABLE KEY oc = <ls_univ>-oc.
       IF sy-subrc <> 0.
@@ -204,7 +345,7 @@ CLASS lcl_paso8 IMPLEMENTATION.
         ENDIF.
       ENDIF.
 
-      APPEND VALUE #( client          = sy-mandt
+      INSERT VALUE #( client          = sy-mandt
                       oc              = <ls_univ>-oc
                       posicion        = <ls_univ>-posicion
                       vbeln           = <ls_univ>-deliverydocument
@@ -214,7 +355,14 @@ CLASS lcl_paso8 IMPLEMENTATION.
                       accion          = lc_accion
                       estado          = lc_estado
                       precio_anterior = <ls_univ>-preciooc
-                      precio_nuevo    = <ls_univ>-precioasn ) TO <ls_doc>-t_log.
+                      precio_nuevo    = <ls_univ>-precioasn ) INTO TABLE <ls_doc>-t_log.
+
+      INSERT VALUE #( posicion     = <ls_univ>-posicion
+                      lifex        = <ls_univ>-facturaremision
+                      delivery_num = <ls_univ>-deliverydocument
+                      ebeln        = <ls_univ>-oc
+                      matnr        = <ls_univ>-material
+                      werks        = <ls_univ>-centro ) INTO TABLE <ls_doc>-t_key.
     ENDLOOP.
   ENDMETHOD.
 
@@ -236,8 +384,7 @@ CLASS lcl_paso8 IMPLEMENTATION.
       rs_pos-unidad = is_univ-cantidadpedidaunidad.
       rs_pos-fecha  = is_univ-fechafactura.
     ELSEIF is_univ-isnfm = 'X'.
-      "OC NFM: so po_item + invoice_date, como o Autorizar. Sem filtro de ja
-      "processado (D4 em aberto): a posicao pode ser regravada a cada execucao.
+      "OC NFM: so po_item + invoice_date, como o Autorizar. Status 2/3 nao e relido.
       rs_pos-nfm       = abap_true.
       rs_pos-fecha_nfm = is_univ-fechafactura.
     ELSE.
@@ -255,12 +402,26 @@ CLASS lcl_paso8 IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD process.
-    DATA: lt_ok   TYPE tt_pos,
+    DATA: lt_key  TYPE tt_zkey,
+          lt_pool TYPE tt_zasn,
+          lt_ok   TYPE tt_pos,
           lt_good TYPE tt_pos,
           lt_fail TYPE tt_pos,
           lt_ret  TYPE tt_ret.
 
+    LOOP AT mt_doc ASSIGNING FIELD-SYMBOL(<ls_src>).
+      INSERT LINES OF CORRESPONDING tt_zkey( <ls_src>-t_key DISCARDING DUPLICATES ) INTO TABLE lt_key.
+    ENDLOOP.
+    lt_pool = read_zasn( lt_key ).
+
     LOOP AT mt_doc ASSIGNING FIELD-SYMBOL(<ls_doc>).
+      IF <ls_doc>-t_err IS NOT INITIAL.
+        write_paso( EXPORTING it_key  = FILTER #( <ls_doc>-t_key IN <ls_doc>-t_err WHERE posicion = posicion )
+                              iv_paso = lc_paso_err
+                    CHANGING  ct_pool = lt_pool ).
+        COMMIT WORK.
+      ENDIF.
+
       lt_ok = FILTER #( <ls_doc>-t_pos EXCEPT IN <ls_doc>-t_err WHERE posicion = posicion ).
       IF lt_ok IS INITIAL.
         CONTINUE.
@@ -286,11 +447,16 @@ CLASS lcl_paso8 IMPLEMENTATION.
         keep_errors( is_doc  = <ls_doc>
                      it_fail = lt_fail
                      it_ret  = lt_ret ).
+        write_paso( EXPORTING it_key  = FILTER #( <ls_doc>-t_key IN lt_fail WHERE posicion = posicion )
+                              iv_paso = lc_paso_err
+                    CHANGING  ct_pool = lt_pool ).
+        COMMIT WORK.
       ENDIF.
 
       IF lt_good IS NOT INITIAL.
-        save_log( is_doc  = <ls_doc>
-                  it_good = lt_good ).
+        save_log( EXPORTING is_doc  = <ls_doc>
+                            it_good = lt_good
+                  CHANGING  ct_pool = lt_pool ).
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
@@ -383,6 +549,9 @@ CLASS lcl_paso8 IMPLEMENTATION.
     MODIFY lt_log FROM VALUE #( fecha_hora = lv_ts ) TRANSPORTING fecha_hora WHERE fecha_hora IS INITIAL.
 
     TRY.
+        write_paso( EXPORTING it_key  = FILTER #( is_doc-t_key IN it_good WHERE posicion = posicion )
+                              iv_paso = lc_paso_ok
+                    CHANGING  ct_pool = ct_pool ).
         INSERT zmm_moncomp_log FROM TABLE @lt_log.
         COMMIT WORK.
         mv_log = mv_log + lines( lt_log ).
