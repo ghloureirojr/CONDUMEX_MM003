@@ -283,13 +283,15 @@ CLASS lcl_paso8 IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD write_paso.
-    DATA lt_hit TYPE tt_zasn.
+    DATA: lt_hit  TYPE tt_zasn,
+          lt_zkey TYPE tt_zkey.
 
     IF it_key IS INITIAL OR ct_pool IS INITIAL.
       RETURN.
     ENDIF.
 
-    lt_hit = FILTER #( ct_pool USING KEY grp IN it_key USING KEY grp
+    lt_zkey = CORRESPONDING #( it_key DISCARDING DUPLICATES ).
+    lt_hit = FILTER #( ct_pool USING KEY grp IN lt_zkey
                        WHERE lifex        = lifex
                          AND delivery_num = delivery_num
                          AND ebeln        = ebeln
