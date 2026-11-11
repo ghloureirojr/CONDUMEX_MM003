@@ -225,7 +225,8 @@ define view entity ZI_MM_MONCOMP_CALC
           then round( cast( pos.OrderQuantity as abap.decfloat34 ) * nfmp.FactorNfm, 5 )
         else cast( 0 as abap.decfloat34 )
       end
-      as abap.dec(16,5) )            as PrecioNfm
+      as abap.dec(16,5) )            as PrecioNfm,
+      zasn.Paso008                   as Paso008
 }
 where
   (
