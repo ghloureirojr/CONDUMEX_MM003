@@ -52,18 +52,5 @@ define root view entity ZI_MM_MONCOMP
       calc.PrecioNfm
 }
 where
-  not(
-       calc.PrecioASN is not null
-   and calc.MonedaOC = calc.MonedaASN
-   and(
-         calc.PrecioOC = calc.PrecioASN
-      or(
-           calc.PrecioOC  <> calc.PrecioASN
-       and calc.PrecioASN =  calc.PrecioInforec
-       and(
-             calc.MonedaInforec = calc.MonedaASN
-          or calc.MonedaInforec is initial
-       )
-      )
-   )
-  )
+     calc.Paso008 is initial
+  or calc.Paso008 = '3'
