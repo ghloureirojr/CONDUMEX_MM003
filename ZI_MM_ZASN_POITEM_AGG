@@ -31,7 +31,8 @@ define view entity ZI_MM_ZASN_POITEM_AGG
         as abap.dec(16,5) )                                                as PrecioMin,
       cast(
         max( case when asn.unit_sell_price > 0 then asn.unit_sell_price end )
-        as abap.dec(16,5) )                                                as PrecioMax
+        as abap.dec(16,5) )                                                as PrecioMax,
+      max( asn.paso_008 )                                                  as Paso008
 }
 group by
   asn.lifex,
