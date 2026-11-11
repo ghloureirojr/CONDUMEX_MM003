@@ -21,14 +21,23 @@ define view entity ZI_MM_MONCOMP_PASO8
       calc.Cantidad,
       calc.CantidadPedidaUnidad,
       calc.FechaFactura,
-      calc.Estado
+      calc.Estado,
+      case
+        when calc.PrecioASN is not null
+         and calc.MonedaOC  =  calc.MonedaASN
+         and calc.PrecioOC  =  calc.PrecioASN
+          then '2'
+        when calc.PrecioASN is not null
+         and calc.MonedaOC  =  calc.MonedaASN
+         and calc.PrecioOC  <> calc.PrecioASN
+         and calc.PrecioASN =  calc.PrecioInforec
+         and(
+               calc.MonedaInforec = calc.MonedaASN
+            or calc.MonedaInforec is initial
+         )
+          then '8'
+        else '3'
+      end as ClasifPaso8
 }
 where
-      calc.PrecioASN is not null
-  and calc.MonedaOC  =  calc.MonedaASN
-  and calc.PrecioOC  <> calc.PrecioASN
-  and calc.PrecioASN =  calc.PrecioInforec
-  and(
-        calc.MonedaInforec = calc.MonedaASN
-     or calc.MonedaInforec is initial
-  )
+  calc.Paso008 = '1'
