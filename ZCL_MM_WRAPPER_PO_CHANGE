@@ -261,6 +261,10 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
              gjahr TYPE /nfm/torderpos-gjahr,
              nes   TYPE /nfm/torderpos-nes,
              ndt   TYPE /nfm/torderpos-ndt,
+             kta   TYPE /nfm/torderpos-kta,
+             nku   TYPE /nfm/torderpos-nku,
+             nno   TYPE /nfm/torderpos-nno,
+             nkn   TYPE /nfm/torderpos-nkn,
            END OF ty_ndt.
 
     DATA: lt_ndt TYPE STANDARD TABLE OF ty_ndt WITH DEFAULT KEY,
@@ -270,7 +274,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    SELECT blt, belnr, posnr, bukrs, gjahr, nes, ndt
+    SELECT blt, belnr, posnr, bukrs, gjahr, nes, ndt, kta, nku, nno, nkn
       FROM /nfm/torderpos
       FOR ALL ENTRIES IN @it_nfm_ch
       WHERE belnr = @it_nfm_ch-doc_number
@@ -279,24 +283,52 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       INTO TABLE @lt_ndt
       BYPASSING BUFFER.
 
-    "El estandar puede mover NDT (fin de semana/feriado); dia fijado = FechaFactura
+    "BAPI_PO_CHANGE puede devolver 06 022 y no aplicar NFMETALLITMS.
+    "NDT vuelve a la FechaFactura; en NFS 01/04 tambien KTA y la tasa.
     LOOP AT lt_ndt ASSIGNING FIELD-SYMBOL(<fs_ndt>).
       READ TABLE it_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm>)
           WITH KEY doc_number = <fs_ndt>-belnr
                    itm_number = <fs_ndt>-posnr
                    nfmkey     = <fs_ndt>-nes.
-      IF sy-subrc IS NOT INITIAL OR <fs_nfm>-ratedetdat = <fs_ndt>-ndt.
+      IF sy-subrc IS NOT INITIAL.
         CONTINUE.
       ENDIF.
 
-      UPDATE /nfm/torderpos
-        SET ndt = @<fs_nfm>-ratedetdat
-        WHERE blt   = @<fs_ndt>-blt
-          AND belnr = @<fs_ndt>-belnr
-          AND posnr = @<fs_ndt>-posnr
-          AND bukrs = @<fs_ndt>-bukrs
-          AND gjahr = @<fs_ndt>-gjahr
-          AND nes   = @<fs_ndt>-nes.
+      IF <fs_nfm>-actratedat IS NOT INITIAL.
+        IF <fs_nfm>-ratedetdat = <fs_ndt>-ndt
+       AND <fs_nfm>-actratedat = <fs_ndt>-kta
+       AND <fs_nfm>-rate       = <fs_ndt>-nkn
+       AND <fs_nfm>-rate       = <fs_ndt>-nku
+       AND <fs_nfm>-rate       = <fs_ndt>-nno.
+          CONTINUE.
+        ENDIF.
+
+        UPDATE /nfm/torderpos
+          SET ndt = @<fs_nfm>-ratedetdat,
+              kta = @<fs_nfm>-actratedat,
+              nku = @<fs_nfm>-rate,
+              nno = @<fs_nfm>-rate,
+              nkn = @<fs_nfm>-rate
+          WHERE blt   = @<fs_ndt>-blt
+            AND belnr = @<fs_ndt>-belnr
+            AND posnr = @<fs_ndt>-posnr
+            AND bukrs = @<fs_ndt>-bukrs
+            AND gjahr = @<fs_ndt>-gjahr
+            AND nes   = @<fs_ndt>-nes.
+      ELSE.
+        IF <fs_nfm>-ratedetdat = <fs_ndt>-ndt.
+          CONTINUE.
+        ENDIF.
+
+        UPDATE /nfm/torderpos
+          SET ndt = @<fs_nfm>-ratedetdat
+          WHERE blt   = @<fs_ndt>-blt
+            AND belnr = @<fs_ndt>-belnr
+            AND posnr = @<fs_ndt>-posnr
+            AND bukrs = @<fs_ndt>-bukrs
+            AND gjahr = @<fs_ndt>-gjahr
+            AND nes   = @<fs_ndt>-nes.
+      ENDIF.
       lv_upd = lv_upd + sy-dbcnt.
     ENDLOOP.
 
@@ -1393,6 +1425,8 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
 
         ls_nfm-actratedat    = ls_qp-quotdate.
         ls_nfm-rate          = ls_qp-price.
+        ls_nfm-ratedoccur    = ls_qp-price.
+        ls_nfm-netrate       = ls_qp-price.
         ls_nfm-ratecurky     = ls_qp-defcurr.
         ls_nfm-ratecurkyiso  = ls_qp-defcurr.
         ls_nfm-bvalcurkyd    = ls_qp-defcurr.
