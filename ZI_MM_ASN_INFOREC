@@ -31,7 +31,18 @@ define view entity ZI_MM_ASN_INFOREC
           cast( 0 as abap.dec(16,5) )
         ) as abap.dec(16,5) ) as PrecioInforec,
       cast( max( cast( concat( konp.ConditionCurrency, ' ' ) as abap.char(5) ) ) as abap.cuky(5) ) as MonedaInforec,
-      cast( max( cast( concat( konp.ConditionUnit, ' ' ) as abap.char(3) ) ) as abap.unit(3) ) as UnidadInforec
+      cast( max( cast( concat( konp.ConditionUnit, ' ' ) as abap.char(3) ) ) as abap.unit(3) ) as UnidadInforec,
+      cast(
+        coalesce(
+          max(
+            case
+              when konp.ConditionPricingUnit > 0
+                then cast( konp.ConditionRate as abap.dec(16,5) )
+              else cast( 0 as abap.dec(16,5) )
+            end
+          ),
+          cast( 0 as abap.dec(16,5) )
+        ) as abap.dec(16,5) ) as ImporteInforec
 }
 group by
   zasn.LifexMin,
