@@ -83,7 +83,14 @@ define view entity ZI_MM_MONCOMP_CALC
       pos.DocumentCurrency           as MonedaOC,
       replace(
         ltrim(
-          rtrim( cast( $projection.PrecioOC as abap.char(21) ), ' ' ),
+          rtrim( cast(
+            cast(
+              case
+                when pos.NetPriceQuantity > 0
+                  then cast( pos.NetPriceAmount as abap.dec(16,5) )
+                else cast( 0 as abap.dec(16,5) )
+              end
+              as abap.dec(16,5) ) as abap.char(21) ), ' ' ),
           ' ' ),
         '.',
         ',' )                         as PrecioOCCrudo,
@@ -105,15 +112,75 @@ define view entity ZI_MM_MONCOMP_CALC
                  1,
                  5 ) )
       end                            as PrecioOCNumTxt,
+      case
+        when instr( $projection.PrecioOCNumTxt, ',' ) <= 4
+          then $projection.PrecioOCNumTxt
+        when instr( $projection.PrecioOCNumTxt, ',' ) <= 7
+          then concat(
+                 substring(
+                   $projection.PrecioOCNumTxt,
+                   1,
+                   instr( $projection.PrecioOCNumTxt, ',' ) - 4 ),
+                 concat(
+                   '.',
+                   substring(
+                     $projection.PrecioOCNumTxt,
+                     instr( $projection.PrecioOCNumTxt, ',' ) - 3,
+                     9 ) ) )
+        when instr( $projection.PrecioOCNumTxt, ',' ) <= 10
+          then concat(
+                 substring(
+                   $projection.PrecioOCNumTxt,
+                   1,
+                   instr( $projection.PrecioOCNumTxt, ',' ) - 7 ),
+                 concat(
+                   '.',
+                   concat(
+                     substring(
+                       $projection.PrecioOCNumTxt,
+                       instr( $projection.PrecioOCNumTxt, ',' ) - 6,
+                       3 ),
+                     concat(
+                       '.',
+                       substring(
+                         $projection.PrecioOCNumTxt,
+                         instr( $projection.PrecioOCNumTxt, ',' ) - 3,
+                         9 ) ) ) ) )
+        else concat(
+               substring(
+                 $projection.PrecioOCNumTxt,
+                 1,
+                 instr( $projection.PrecioOCNumTxt, ',' ) - 10 ),
+               concat(
+                 '.',
+                 concat(
+                   substring(
+                     $projection.PrecioOCNumTxt,
+                     instr( $projection.PrecioOCNumTxt, ',' ) - 9,
+                     3 ),
+                   concat(
+                     '.',
+                     concat(
+                       substring(
+                         $projection.PrecioOCNumTxt,
+                         instr( $projection.PrecioOCNumTxt, ',' ) - 6,
+                         3 ),
+                       concat(
+                         '.',
+                         substring(
+                           $projection.PrecioOCNumTxt,
+                           instr( $projection.PrecioOCNumTxt, ',' ) - 3,
+                           9 ) ) ) ) ) ) )
+      end                            as PrecioOCFmt,
       cast(
         case
           when $projection.MonedaOC is not initial
            and pos.OrderPriceUnit is not initial
             then concat_with_space(
-                   $projection.PrecioOCNumTxt,
+                   $projection.PrecioOCFmt,
                    concat( $projection.MonedaOC, concat( '/', pos.OrderPriceUnit ) ),
                    1 )
-          else $projection.PrecioOCNumTxt
+          else $projection.PrecioOCFmt
         end
         as abap.char(40) )           as PrecioOCTexto,
       cast(
@@ -144,7 +211,12 @@ define view entity ZI_MM_MONCOMP_CALC
       inforec.MonedaInforec          as MonedaInforec,
       replace(
         ltrim(
-          rtrim( cast( $projection.PrecioInforec as abap.char(21) ), ' ' ),
+          rtrim( cast(
+            cast(
+              coalesce(
+                inforec.ImporteInforec,
+                cast( 0 as abap.dec(16,5) ) )
+              as abap.dec(16,5) ) as abap.char(21) ), ' ' ),
           ' ' ),
         '.',
         ',' )                         as PrecioInforecCrudo,
@@ -166,15 +238,75 @@ define view entity ZI_MM_MONCOMP_CALC
                  1,
                  5 ) )
       end                            as PrecioInforecNumTxt,
+      case
+        when instr( $projection.PrecioInforecNumTxt, ',' ) <= 4
+          then $projection.PrecioInforecNumTxt
+        when instr( $projection.PrecioInforecNumTxt, ',' ) <= 7
+          then concat(
+                 substring(
+                   $projection.PrecioInforecNumTxt,
+                   1,
+                   instr( $projection.PrecioInforecNumTxt, ',' ) - 4 ),
+                 concat(
+                   '.',
+                   substring(
+                     $projection.PrecioInforecNumTxt,
+                     instr( $projection.PrecioInforecNumTxt, ',' ) - 3,
+                     9 ) ) )
+        when instr( $projection.PrecioInforecNumTxt, ',' ) <= 10
+          then concat(
+                 substring(
+                   $projection.PrecioInforecNumTxt,
+                   1,
+                   instr( $projection.PrecioInforecNumTxt, ',' ) - 7 ),
+                 concat(
+                   '.',
+                   concat(
+                     substring(
+                       $projection.PrecioInforecNumTxt,
+                       instr( $projection.PrecioInforecNumTxt, ',' ) - 6,
+                       3 ),
+                     concat(
+                       '.',
+                       substring(
+                         $projection.PrecioInforecNumTxt,
+                         instr( $projection.PrecioInforecNumTxt, ',' ) - 3,
+                         9 ) ) ) ) )
+        else concat(
+               substring(
+                 $projection.PrecioInforecNumTxt,
+                 1,
+                 instr( $projection.PrecioInforecNumTxt, ',' ) - 10 ),
+               concat(
+                 '.',
+                 concat(
+                   substring(
+                     $projection.PrecioInforecNumTxt,
+                     instr( $projection.PrecioInforecNumTxt, ',' ) - 9,
+                     3 ),
+                   concat(
+                     '.',
+                     concat(
+                       substring(
+                         $projection.PrecioInforecNumTxt,
+                         instr( $projection.PrecioInforecNumTxt, ',' ) - 6,
+                         3 ),
+                       concat(
+                         '.',
+                         substring(
+                           $projection.PrecioInforecNumTxt,
+                           instr( $projection.PrecioInforecNumTxt, ',' ) - 3,
+                           9 ) ) ) ) ) ) )
+      end                            as PrecioInforecFmt,
       cast(
         case
           when $projection.MonedaInforec is not initial
            and inforec.UnidadInforec is not initial
             then concat_with_space(
-                   $projection.PrecioInforecNumTxt,
+                   $projection.PrecioInforecFmt,
                    concat( $projection.MonedaInforec, concat( '/', inforec.UnidadInforec ) ),
                    1 )
-          else $projection.PrecioInforecNumTxt
+          else $projection.PrecioInforecFmt
         end
         as abap.char(40) )           as PrecioInforecTexto,
       zasn.CantidadFactura           as Cantidad,
