@@ -19,6 +19,8 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
              precioOC  TYPE zmm_moncomp_log-precio_anterior,
              precioASN TYPE zmm_moncomp_log-precio_asn,
              monedaASN TYPE waers,
+             material  TYPE matnr,
+             centro    TYPE werks_d,
            END OF ty_posicion,
            BEGIN OF ty_id,
              oc    TYPE vdm_purchaseorder,
@@ -51,6 +53,17 @@ CLASS lcl_buffer DEFINITION CREATE PRIVATE.
     CLASS-DATA gt_sag_id TYPE STANDARD TABLE OF ty_id
                            WITH UNIQUE HASHED KEY id COMPONENTS oc.
     CLASS-DATA gt_nfm    TYPE STANDARD TABLE OF ty_nfm WITH EMPTY KEY.
+
+    TYPES: BEGIN OF ty_zasn_ok,
+             oc       TYPE vdm_purchaseorder,
+             posicion TYPE vdm_purchaseorderitem,
+             lifex    TYPE lifex,
+             vbeln    TYPE vbeln_vl,
+             matnr    TYPE matnr,
+             werks    TYPE werks_d,
+           END OF ty_zasn_ok.
+    CLASS-DATA gt_zasn_ok TYPE SORTED TABLE OF ty_zasn_ok
+                            WITH UNIQUE KEY oc posicion lifex vbeln matnr werks.
 
     CLASS-METHODS bapi_text
       IMPORTING is_ret         TYPE bapiret2
@@ -1371,7 +1384,7 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
 
     CONSTANTS lc_msg_dup TYPE string VALUE 'Una misma posición de un documento de compra no puede modificarse más que una vez a la vez, modifique el precio una vez concluya el ciclo y si es necesario entre de nuevo a la app'.
 
-    CLEAR: lcl_buffer=>gt_sag, lcl_buffer=>gt_sag_id, lcl_buffer=>gt_nfm.
+    CLEAR: lcl_buffer=>gt_sag, lcl_buffer=>gt_sag_id, lcl_buffer=>gt_nfm, lcl_buffer=>gt_zasn_ok.
 
     READ ENTITIES OF zi_mm_moncomp IN LOCAL MODE
       ENTITY zi_mm_moncomp
@@ -1650,6 +1663,13 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                         precio_anterior = <fs_moncomp>-PrecioOC
                         precio_nuevo    = <fs_moncomp>-PrecioASN ) TO lcl_buffer=>gt_log.
 
+        INSERT VALUE #( oc       = <fs_moncomp>-oc
+                        posicion = <fs_moncomp>-Posicion
+                        lifex    = <fs_moncomp>-FacturaRemision
+                        vbeln    = <fs_moncomp>-DeliveryDocument
+                        matnr    = <fs_moncomp>-Material
+                        werks    = <fs_moncomp>-Centro ) INTO TABLE lcl_buffer=>gt_zasn_ok.
+
         reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                  %tky = keys[ KEY id %key-oc               = <fs_moncomp>-oc
                                                                      %key-Posicion         = <fs_moncomp>-Posicion
@@ -1719,7 +1739,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                         factura   = <fs_moncomp>-FacturaRemision
                         precioOC  = <fs_moncomp>-PrecioOC
                         precioASN = <fs_moncomp>-PrecioASN
-                        monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_sag_id>-t_pos.
+                        monedaASN = <fs_moncomp>-MonedaASN
+                        material  = <fs_moncomp>-Material
+                        centro    = <fs_moncomp>-Centro ) TO <fs_sag_id>-t_pos.
 
         lv_run_sag = abap_true.
         CLEAR lv_timestamp.
@@ -1753,7 +1775,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                         factura   = <fs_moncomp>-FacturaRemision
                         precioOC  = <fs_moncomp>-PrecioOC
                         precioASN = <fs_moncomp>-PrecioASN
-                        monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
+                        monedaASN = <fs_moncomp>-MonedaASN
+                        material  = <fs_moncomp>-Material
+                        centro    = <fs_moncomp>-Centro ) TO <fs_id>-t_pos.
 
         lv_run_bapi = abap_true.
         CLEAR lv_timestamp.
@@ -1766,7 +1790,9 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                         factura   = <fs_moncomp>-FacturaRemision
                         precioOC  = <fs_moncomp>-PrecioOC
                         precioASN = <fs_moncomp>-PrecioASN
-                        monedaASN = <fs_moncomp>-MonedaASN ) TO <fs_id>-t_pos.
+                        monedaASN = <fs_moncomp>-MonedaASN
+                        material  = <fs_moncomp>-Material
+                        centro    = <fs_moncomp>-Centro ) TO <fs_id>-t_pos.
 
         CLEAR: lv_peinh, lv_monto.
         lv_peinh = 1000.
@@ -1935,6 +1961,13 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                 precio_anterior = <fs_pos>-preciooc
                                 precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
 
+                INSERT VALUE #( oc       = <fs_result>-oc
+                                posicion = <fs_pos>-posicion
+                                lifex    = <fs_pos>-factura
+                                vbeln    = <fs_pos>-vbeln
+                                matnr    = <fs_pos>-material
+                                werks    = <fs_pos>-centro ) INTO TABLE lcl_buffer=>gt_zasn_ok.
+
                 reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                          %tky = keys[ KEY id %key-oc               = <fs_result>-oc
                                                                              %key-Posicion         = <fs_pos>-posicion
@@ -2040,6 +2073,13 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                               estado          = '06'
                               precio_anterior = <fs_pos>-preciooc
                               precio_nuevo    = <fs_pos>-precioasn ) TO lcl_buffer=>gt_log.
+
+              INSERT VALUE #( oc       = <fs_sag_res>-oc
+                              posicion = <fs_pos>-posicion
+                              lifex    = <fs_pos>-factura
+                              vbeln    = <fs_pos>-vbeln
+                              matnr    = <fs_pos>-material
+                              werks    = <fs_pos>-centro ) INTO TABLE lcl_buffer=>gt_zasn_ok.
 
               reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                        %tky = keys[ KEY id %key-oc               = <fs_sag_res>-oc
@@ -2676,12 +2716,15 @@ CLASS lsc_ZI_MM_MONCOMP IMPLEMENTATION.
 
   METHOD save.
     DATA lv_log_before TYPE i.
+    DATA lt_zasn TYPE STANDARD TABLE OF zasn WITH EMPTY KEY.
+    DATA lv_paso4 TYPE abap_bool.
 
     LOOP AT lcl_buffer=>gt_nfm ASSIGNING FIELD-SYMBOL(<fs_nfm>).
       IF zcl_mm_wrapper_nfm_orderpos=>update_rates(
            CORRESPONDING #( <fs_nfm> ) ) = abap_false.
         lv_log_before = lines( lcl_buffer=>gt_log ).
         DELETE lcl_buffer=>gt_log WHERE oc = <fs_nfm>-oc AND posicion = <fs_nfm>-posicion.
+        DELETE lcl_buffer=>gt_zasn_ok WHERE oc = <fs_nfm>-oc AND posicion = <fs_nfm>-posicion.
         IF lines( lcl_buffer=>gt_log ) < lv_log_before.
           reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp (
                                                    %msg = new_message_with_text(
@@ -2690,6 +2733,24 @@ CLASS lsc_ZI_MM_MONCOMP IMPLEMENTATION.
         ENDIF.
       ENDIF.
     ENDLOOP.
+
+    IF lcl_buffer=>gt_zasn_ok IS NOT INITIAL.
+      SELECT * FROM zasn
+        FOR ALL ENTRIES IN @lcl_buffer=>gt_zasn_ok
+        WHERE lifex        = @lcl_buffer=>gt_zasn_ok-lifex
+          AND delivery_num = @lcl_buffer=>gt_zasn_ok-vbeln
+          AND ebeln        = @lcl_buffer=>gt_zasn_ok-oc
+          AND matnr        = @lcl_buffer=>gt_zasn_ok-matnr
+          AND werks        = @lcl_buffer=>gt_zasn_ok-werks
+          AND ( paso_008 = @space OR paso_008 = '3' )
+        INTO TABLE @lt_zasn.
+      IF lt_zasn IS NOT INITIAL.
+        MODIFY lt_zasn FROM VALUE #( paso_008 = '4' ) TRANSPORTING paso_008
+          WHERE paso_008 = space OR paso_008 = '3'.
+        UPDATE zasn FROM TABLE @lt_zasn.
+        lv_paso4 = abap_true.
+      ENDIF.
+    ENDIF.
 
     IF lcl_buffer=>gt_log IS NOT INITIAL.
       INSERT zmm_moncomp_log FROM TABLE @lcl_buffer=>gt_log.
@@ -2700,10 +2761,12 @@ CLASS lsc_ZI_MM_MONCOMP IMPLEMENTATION.
                                                                 number   = 013
                                                                 severity = if_abap_behv_message=>severity-success ) ) ).
       ELSE.
-        IF lcl_buffer=>gv_failed_action = 'PASO8'.
-          failed-zi_mm_moncomp = VALUE #( ( %action-actualizarPrecioPaso8 = 1 ) ).
-        ELSE.
-          failed-zi_mm_moncomp = VALUE #( ( %action-uploadExcel = 1 ) ).
+        IF lv_paso4 = abap_false.
+          IF lcl_buffer=>gv_failed_action = 'PASO8'.
+            failed-zi_mm_moncomp = VALUE #( ( %action-actualizarPrecioPaso8 = 1 ) ).
+          ELSE.
+            failed-zi_mm_moncomp = VALUE #( ( %action-uploadExcel = 1 ) ).
+          ENDIF.
         ENDIF.
         reported-zi_mm_moncomp = VALUE #( BASE reported-zi_mm_moncomp
                                           ( %msg = new_message( id       = 'ZCL_MSG_MM_003'
@@ -2718,6 +2781,7 @@ CLASS lsc_ZI_MM_MONCOMP IMPLEMENTATION.
            lcl_buffer=>gt_sag,
            lcl_buffer=>gt_sag_id,
            lcl_buffer=>gt_nfm,
+           lcl_buffer=>gt_zasn_ok,
            lcl_buffer=>gv_failed_action.
   ENDMETHOD.
 
