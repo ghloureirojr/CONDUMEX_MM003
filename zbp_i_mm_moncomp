@@ -2198,6 +2198,13 @@ CLASS lhc_ZI_MM_MONCOMP IMPLEMENTATION.
                                                       FacturaRemision  = <fs_moncomp>-FacturaRemision ]-%param-Nota
                       estado          = '06' ) TO lcl_buffer=>gt_log.
 
+      INSERT VALUE #( oc       = <fs_moncomp>-oc
+                      posicion = <fs_moncomp>-Posicion
+                      lifex    = <fs_moncomp>-FacturaRemision
+                      vbeln    = <fs_moncomp>-DeliveryDocument
+                      matnr    = <fs_moncomp>-Material
+                      werks    = <fs_moncomp>-Centro ) INTO TABLE lcl_buffer=>gt_zasn_ok.
+
       CLEAR lv_timestamp.
     ENDLOOP.
   ENDMETHOD.
