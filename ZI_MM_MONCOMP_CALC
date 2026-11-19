@@ -84,13 +84,7 @@ define view entity ZI_MM_MONCOMP_CALC
       replace(
         ltrim(
           rtrim( cast(
-            cast(
-              case
-                when pos.NetPriceQuantity > 0
-                  then cast( pos.NetPriceAmount as abap.dec(16,5) )
-                else cast( 0 as abap.dec(16,5) )
-              end
-              as abap.dec(16,5) ) as abap.char(21) ), ' ' ),
+            cast( $projection.PrecioOC as abap.dec(16,5) ) as abap.char(21) ), ' ' ),
           ' ' ),
         '.',
         ',' )                         as PrecioOCCrudo,
@@ -212,11 +206,7 @@ define view entity ZI_MM_MONCOMP_CALC
       replace(
         ltrim(
           rtrim( cast(
-            cast(
-              coalesce(
-                inforec.ImporteInforec,
-                cast( 0 as abap.dec(16,5) ) )
-              as abap.dec(16,5) ) as abap.char(21) ), ' ' ),
+            cast( $projection.PrecioInforec as abap.dec(16,5) ) as abap.char(21) ), ' ' ),
           ' ' ),
         '.',
         ',' )                         as PrecioInforecCrudo,
@@ -320,7 +310,7 @@ define view entity ZI_MM_MONCOMP_CALC
       cast(
         case
           when $projection.MonedaASN = $projection.MonedaInforec
-            then $projection.PrecioASN - $projection.PrecioInforec
+            then $projection.PrecioInforec - $projection.PrecioASN
           else cast( 0 as abap.dec(16,5) )
         end
         as abap.dec(16,5) )          as DiferenciaAsnInforec,
