@@ -166,15 +166,20 @@ define view entity ZI_MM_MONCOMP_CALC
                            instr( $projection.PrecioOCNumTxt, ',' ) - 3,
                            9 ) ) ) ) ) ) )
       end                            as PrecioOCFmt,
+      replace(
+        replace(
+          replace( $projection.PrecioOCFmt, '.', '#' ),
+          ',', '.' ),
+        '#', ',' )                   as PrecioOCTxt,
       cast(
         case
           when $projection.MonedaOC is not initial
            and pos.OrderPriceUnit is not initial
             then concat_with_space(
-                   $projection.PrecioOCFmt,
+                   $projection.PrecioOCTxt,
                    concat( $projection.MonedaOC, concat( '/', pos.OrderPriceUnit ) ),
                    1 )
-          else $projection.PrecioOCFmt
+          else $projection.PrecioOCTxt
         end
         as abap.char(40) )           as PrecioOCTexto,
       cast(
@@ -288,15 +293,20 @@ define view entity ZI_MM_MONCOMP_CALC
                            instr( $projection.PrecioInforecNumTxt, ',' ) - 3,
                            9 ) ) ) ) ) ) )
       end                            as PrecioInforecFmt,
+      replace(
+        replace(
+          replace( $projection.PrecioInforecFmt, '.', '#' ),
+          ',', '.' ),
+        '#', ',' )                   as PrecioInforecTxt,
       cast(
         case
           when $projection.MonedaInforec is not initial
            and inforec.UnidadInforec is not initial
             then concat_with_space(
-                   $projection.PrecioInforecFmt,
+                   $projection.PrecioInforecTxt,
                    concat( $projection.MonedaInforec, concat( '/', inforec.UnidadInforec ) ),
                    1 )
-          else $projection.PrecioInforecFmt
+          else $projection.PrecioInforecTxt
         end
         as abap.char(40) )           as PrecioInforecTexto,
       zasn.CantidadFactura           as Cantidad,
