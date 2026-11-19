@@ -98,6 +98,9 @@ CLASS zcl_mm_wrapper_po_change DEFINITION
       IMPORTING it_nfm_ch TYPE tt_nfm_std
       CHANGING  ct_return TYPE tt_return.
 
+    CLASS-METHODS restore_nfm_ndt
+      IMPORTING it_nfm_ch TYPE tt_nfm_std.
+
     CLASS-METHODS ensure_nfm_currency
       IMPORTING iv_purchaseorder TYPE vdm_purchaseorder
                 it_poitem        TYPE ty_param-t_poitem
@@ -247,6 +250,94 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
                         message_v4 = |{ <fs_chk>-nkn }| ) TO ct_return.
       ENDIF.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD restore_nfm_ndt.
+    TYPES: BEGIN OF ty_ndt,
+             blt   TYPE /nfm/torderpos-blt,
+             belnr TYPE /nfm/torderpos-belnr,
+             posnr TYPE /nfm/torderpos-posnr,
+             bukrs TYPE /nfm/torderpos-bukrs,
+             gjahr TYPE /nfm/torderpos-gjahr,
+             nes   TYPE /nfm/torderpos-nes,
+             ndt   TYPE /nfm/torderpos-ndt,
+             kta   TYPE /nfm/torderpos-kta,
+             nku   TYPE /nfm/torderpos-nku,
+             nno   TYPE /nfm/torderpos-nno,
+             nkn   TYPE /nfm/torderpos-nkn,
+           END OF ty_ndt.
+
+    DATA: lt_ndt TYPE STANDARD TABLE OF ty_ndt WITH DEFAULT KEY,
+          lv_upd TYPE i.
+
+    IF it_nfm_ch IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    SELECT blt, belnr, posnr, bukrs, gjahr, nes, ndt, kta, nku, nno, nkn
+      FROM /nfm/torderpos
+      FOR ALL ENTRIES IN @it_nfm_ch
+      WHERE belnr = @it_nfm_ch-doc_number
+        AND posnr = @it_nfm_ch-itm_number
+        AND nes   = @it_nfm_ch-nfmkey
+      INTO TABLE @lt_ndt
+      BYPASSING BUFFER.
+
+    "BAPI_PO_CHANGE puede devolver 06 022 y no aplicar NFMETALLITMS.
+    "Con 06 023 reescribe el parametro TABLES; it_nfm_ch es la copia previa al CALL.
+    "NDT vuelve a la FechaFactura; en NFS 01/04 tambien KTA y la tasa.
+    LOOP AT lt_ndt ASSIGNING FIELD-SYMBOL(<fs_ndt>).
+      READ TABLE it_nfm_ch ASSIGNING FIELD-SYMBOL(<fs_nfm>)
+          WITH KEY doc_number = <fs_ndt>-belnr
+                   itm_number = <fs_ndt>-posnr
+                   nfmkey     = <fs_ndt>-nes.
+      IF sy-subrc IS NOT INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      IF <fs_nfm>-actratedat IS NOT INITIAL.
+        IF <fs_nfm>-ratedetdat = <fs_ndt>-ndt
+       AND <fs_nfm>-actratedat = <fs_ndt>-kta
+       AND <fs_nfm>-rate       = <fs_ndt>-nkn
+       AND <fs_nfm>-rate       = <fs_ndt>-nku
+       AND <fs_nfm>-rate       = <fs_ndt>-nno.
+          CONTINUE.
+        ENDIF.
+
+        UPDATE /nfm/torderpos
+          SET ndt = @<fs_nfm>-ratedetdat,
+              kta = @<fs_nfm>-actratedat,
+              nku = @<fs_nfm>-rate,
+              nno = @<fs_nfm>-rate,
+              nkn = @<fs_nfm>-rate
+          WHERE blt   = @<fs_ndt>-blt
+            AND belnr = @<fs_ndt>-belnr
+            AND posnr = @<fs_ndt>-posnr
+            AND bukrs = @<fs_ndt>-bukrs
+            AND gjahr = @<fs_ndt>-gjahr
+            AND nes   = @<fs_ndt>-nes.
+      ELSE.
+        IF <fs_nfm>-ratedetdat = <fs_ndt>-ndt.
+          CONTINUE.
+        ENDIF.
+
+        UPDATE /nfm/torderpos
+          SET ndt = @<fs_nfm>-ratedetdat
+          WHERE blt   = @<fs_ndt>-blt
+            AND belnr = @<fs_ndt>-belnr
+            AND posnr = @<fs_ndt>-posnr
+            AND bukrs = @<fs_ndt>-bukrs
+            AND gjahr = @<fs_ndt>-gjahr
+            AND nes   = @<fs_ndt>-nes.
+      ENDIF.
+      lv_upd = lv_upd + sy-dbcnt.
+    ENDLOOP.
+
+    IF lv_upd > 0.
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+    ENDIF.
   ENDMETHOD.
 
   METHOD ensure_nfm_currency.
@@ -526,6 +617,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lt_nfm       TYPE tt_nfm_std,
           lt_nfm_k     TYPE tt_nfm,
           lt_nfm_ch    TYPE tt_nfm_std,
+          lt_nfm_req   TYPE tt_nfm_std,
           lt_nfm_ret   TYPE tt_return,
           lt_db_nfm    TYPE tt_torder,
           ls_header    TYPE bapimepoheader,
@@ -781,7 +873,7 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         ENDIF.
       ENDLOOP.
 
-      "Pedido: cotizacion OICQP con corte EKKO-BEDAT (igual ZMM_SA_NFM)
+      "Pedido: cotizacion OICQP con corte por FechaFactura (cotizacion anterior mas proxima)
       IF lv_bstyp <> 'L' AND lt_nfm_k IS NOT INITIAL.
         select_nfm_oicqp( EXPORTING iv_purchaseorder = is_param-iv_purchaseorder
                                     it_poitem        = is_param-t_poitem
@@ -843,6 +935,9 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       ls_headerx-po_number = abap_true.
     ENDIF.
 
+    "06 023 reescribe nfmetallitms con la tasa que quedo en el pedido.
+    lt_nfm_req = lt_nfm_ch.
+
     TRY.
         CALL FUNCTION 'BAPI_PO_CHANGE'
           EXPORTING
@@ -871,8 +966,10 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       EXPORTING
         wait = abap_true.
 
-    IF lv_bstyp = 'F' AND lt_nfm_ch IS NOT INITIAL.
-      verify_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_ch
+    IF lv_bstyp = 'F' AND lt_nfm_req IS NOT INITIAL.
+      restore_nfm_ndt( it_nfm_ch = lt_nfm_req ).
+
+      verify_nfm_orderpos( EXPORTING it_nfm_ch = lt_nfm_req
                            CHANGING  ct_return = rt_return ).
     ENDIF.
   ENDMETHOD.
@@ -1128,6 +1225,9 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lv_nes     TYPE /nfm/nes,
           lv_msg     TYPE bapi_msg,
           lv_err     TYPE abap_bool,
+          lv_found   TYPE abap_bool,
+          lv_max_dt  TYPE dats,
+          ls_qp      TYPE ty_qp,
           lt_pos     TYPE HASHED TABLE OF ty_pos WITH UNIQUE KEY itm_number,
           lt_fae     TYPE STANDARD TABLE OF ty_fae WITH DEFAULT KEY,
           lt_ekpo    TYPE SORTED TABLE OF ty_ekpo WITH UNIQUE KEY ebelp,
@@ -1137,7 +1237,6 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
           lt_vgw_wrk TYPE SORTED TABLE OF ty_vgw_wrk WITH NON-UNIQUE KEY matnr werks nes,
           lt_qkey    TYPE HASHED TABLE OF ty_qkey WITH UNIQUE KEY quotyp quotno,
           lt_qp      TYPE STANDARD TABLE OF ty_qp WITH DEFAULT KEY,
-          lt_qp_h    TYPE HASHED TABLE OF ty_qp WITH UNIQUE KEY quotyp quotno,
           lt_work    TYPE STANDARD TABLE OF ty_work WITH DEFAULT KEY,
           ls_work    TYPE ty_work,
           ls_nfm     TYPE /nfm/bapidocitm.
@@ -1280,6 +1379,12 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
       APPEND ls_work TO lt_work.
     ENDLOOP.
 
+    LOOP AT lt_work ASSIGNING FIELD-SYMBOL(<fs_work>).
+      IF <fs_work>-invoice_date > lv_max_dt.
+        lv_max_dt = <fs_work>-invoice_date.
+      ENDIF.
+    ENDLOOP.
+
     IF lt_qkey IS NOT INITIAL.
       SELECT quotyp, quotno, quotdate, price, defcurr
         FROM oicqp
@@ -1287,23 +1392,30 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
         WHERE quosrc    = 'NF'
           AND quotyp    = @lt_qkey-quotyp
           AND quotno    = @lt_qkey-quotno
-          AND quotdate <= @lv_bedat
+          AND quotdate <= @lv_max_dt
         INTO TABLE @lt_qp.
 
       SORT lt_qp BY quotyp ASCENDING quotno ASCENDING quotdate DESCENDING.
-      DELETE ADJACENT DUPLICATES FROM lt_qp COMPARING quotyp quotno.
-      lt_qp_h = lt_qp.
     ENDIF.
 
-    LOOP AT lt_work ASSIGNING FIELD-SYMBOL(<fs_work>).
+    LOOP AT lt_work ASSIGNING <fs_work>.
       ls_nfm            = <fs_work>-nfm.
       ls_nfm-ratedetdat = <fs_work>-invoice_date.
       ls_nfm-updtype    = 'U'.
 
       IF <fs_work>-nfs = '01' OR <fs_work>-nfs = '04'.
-        READ TABLE lt_qp_h ASSIGNING FIELD-SYMBOL(<fs_qp>)
-            WITH TABLE KEY quotyp = <fs_work>-quotyp quotno = <fs_work>-quotno.
-        IF sy-subrc IS NOT INITIAL.
+        "Cotizacion anterior mas proxima a la FechaFactura de la posicion
+        CLEAR: lv_found, ls_qp.
+        LOOP AT lt_qp ASSIGNING FIELD-SYMBOL(<fs_qp>)
+             WHERE quotyp    = <fs_work>-quotyp
+               AND quotno    = <fs_work>-quotno
+               AND quotdate <= <fs_work>-invoice_date.
+          ls_qp    = <fs_qp>.
+          lv_found = abap_true.
+          EXIT.
+        ENDLOOP.
+
+        IF lv_found = abap_false.
           lv_msg = |Precio NFM 0 { iv_purchaseorder }/{ ls_nfm-itm_number } NES { <fs_work>-nes }|.
           APPEND VALUE #( type       = 'E'
                           id         = 'ZCL_MSG_MM_003'
@@ -1311,17 +1423,19 @@ CLASS zcl_mm_wrapper_po_change IMPLEMENTATION.
                           message    = lv_msg
                           message_v1 = iv_purchaseorder
                           message_v2 = ls_nfm-itm_number
-                          message_v3 = lv_bedat
+                          message_v3 = <fs_work>-invoice_date
                           message_v4 = <fs_work>-nes ) TO ct_return.
           RETURN.
         ENDIF.
 
-        ls_nfm-actratedat    = <fs_qp>-quotdate.
-        ls_nfm-rate          = <fs_qp>-price.
-        ls_nfm-ratecurky     = <fs_qp>-defcurr.
-        ls_nfm-ratecurkyiso  = <fs_qp>-defcurr.
-        ls_nfm-bvalcurkyd    = <fs_qp>-defcurr.
-        ls_nfm-bvalcurkydiso = <fs_qp>-defcurr.
+        ls_nfm-actratedat    = ls_qp-quotdate.
+        ls_nfm-rate          = ls_qp-price.
+        ls_nfm-ratedoccur    = ls_qp-price.
+        ls_nfm-netrate       = ls_qp-price.
+        ls_nfm-ratecurky     = ls_qp-defcurr.
+        ls_nfm-ratecurkyiso  = ls_qp-defcurr.
+        ls_nfm-bvalcurkyd    = ls_qp-defcurr.
+        ls_nfm-bvalcurkydiso = ls_qp-defcurr.
       ENDIF.
 
       APPEND ls_nfm TO ct_nfm_ch.
